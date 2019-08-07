@@ -606,6 +606,10 @@ object AsyncHttpApi extends Assertions {
       getWithApiKey(s"/debug/portfolios/$address?considerUnspent=$considerUnspent")
     }.as[Portfolio]
 
+    def debugTrackedAssets(address: String): Future[Seq[String]] = getWithApiKey(s"/debug/trackedAssets/$address").as[Seq[String]]
+
+    def debugBalanceDetails(address: String, asset: String): Future[DebugBalanceDetails] = getWithApiKey(s"/debug/balanceDetails/$address/$asset").as[DebugBalanceDetails]
+
     def debugMinerInfo(): Future[Seq[State]] = getWithApiKey(s"/debug/minerInfo").as[Seq[State]]
 
     def transactionSerializer(body: JsObject): Future[TransactionSerialize] =

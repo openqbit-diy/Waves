@@ -182,6 +182,18 @@ class LevelDBWriter(
     }
   }
 
+  override def trackedAssets(address: Address): Set[Asset] = readOnly { db =>
+    addressId(address).fold(Set.empty[Asset]) { addressId =>
+      db.get(Keys.trackedAssets(addressId))
+    }
+  }
+
+  protected override def loadBadAssets(req: (Address, Asset)): Long = readOnly { db =>
+    addressId(req._1).fold(0L) { addressId =>
+      db.fromHistory(Keys.trackedAssetsHistory(addressId, req._2), Keys.badAssets(addressId, req._2)).getOrElse(0L)
+    }
+  }
+
   private def loadLeaseBalance(db: ReadOnlyDB, addressId: BigInt): LeaseBalance = {
     val lease = db.fromHistory(Keys.leaseBalanceHistory(addressId), Keys.leaseBalance(addressId)).getOrElse(LeaseBalance.empty)
     lease
@@ -259,7 +271,8 @@ class LevelDBWriter(
       sponsorship: Map[IssuedAsset, Sponsorship],
       totalFee: Long,
       reward: Option[Long],
-      scriptResults: Map[ByteStr, InvokeScriptResult]
+      scriptResults: Map[ByteStr, InvokeScriptResult],
+      badAssetsOfAddress: Map[BigInt, Map[Asset, Long]]
   ): Unit = readWrite { rw =>
     val expiredKeys = new ArrayBuffer[Array[Byte]]
 
@@ -287,10 +300,12 @@ class LevelDBWriter(
     rw.put(Keys.lastAddressId, Some(lastAddressId))
     rw.put(Keys.score(height), rw.get(Keys.score(height - 1)) + block.blockScore())
 
+    val newAddressesById = mutable.Map.empty[BigInt, Address]
     for ((address, id) <- newAddresses) {
       rw.put(Keys.addressId(address), Some(id))
       log.trace(s"WRITE ${address.stringRepr} -> $id")
       rw.put(Keys.idToAddress(id), address)
+      newAddressesById.put(id, address)
     }
     log.trace(s"WRITE lastAddressId = $lastAddressId")
 
@@ -345,6 +360,29 @@ class LevelDBWriter(
       rw.put(seqNrKey, nextSeqNr)
       rw.put(key, newAddressIds.toSeq)
     }
+
+    // Tracking starts
+    for ((addressId, assets) <- badAssetsOfAddress) {
+      val prevAssets = rw.get(Keys.trackedAssets(addressId))
+      val newAssets  = assets.keySet -- prevAssets
+
+      if (newAssets.nonEmpty) {
+        val address = newAddressesById.getOrElse(addressId, rw.get(Keys.idToAddress(addressId)))
+        log.trace(s"New tracked assets for $address: ${assets.mkString(", ")}")
+      }
+
+      rw.put(Keys.trackedAssets(addressId), newAssets ++ prevAssets)
+      for ((assetId, balance) <- assets) {
+        rw.put(Keys.badAssets(addressId, assetId)(height), balance)
+        expiredKeys ++= updateHistory(
+          rw,
+          Keys.trackedAssetsHistory(addressId, assetId),
+          threshold,
+          Keys.badAssets(addressId, assetId)
+        )
+      }
+    }
+    // Tracking ends
 
     rw.put(Keys.changedAddresses(height), changedAddresses.toSeq)
 
@@ -487,6 +525,8 @@ class LevelDBWriter(
         val assetScriptsToDiscard   = Seq.newBuilder[IssuedAsset]
         val accountDataToInvalidate = Seq.newBuilder[(Address, String)]
 
+        val trackedAddressAssetsToInvalidate = Seq.newBuilder[(Address, Asset)]
+
         val h = Height(currentHeight)
 
         val discardedBlock = readWrite { rw =>
@@ -506,6 +546,12 @@ class LevelDBWriter(
               balancesToInvalidate += (address -> assetId)
               rw.delete(Keys.assetBalance(addressId, assetId)(currentHeight))
               rw.filterHistory(Keys.assetBalanceHistory(addressId, assetId), currentHeight)
+            }
+
+            for (assetId <- rw.get(Keys.trackedAssets(addressId))) {
+              trackedAddressAssetsToInvalidate += (address -> assetId)
+              rw.delete(Keys.badAssets(addressId, assetId)(currentHeight))
+              rw.filterHistory(Keys.trackedAssetsHistory(addressId, assetId), currentHeight)
             }
 
             for (k <- rw.get(Keys.changedDataKeys(currentHeight, addressId))) {
@@ -626,6 +672,7 @@ class LevelDBWriter(
           case ak @ (addr, _) =>
             discardAccountData(ak)
         }
+        trackedAddressAssetsToInvalidate.result().foreach(discardTrackedAddressAssets)
         discardedBlock
       }
 

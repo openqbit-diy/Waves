@@ -152,6 +152,10 @@ object SyncHttpApi extends Assertions {
 
     def debugPortfoliosFor(address: String, considerUnspent: Boolean): Portfolio = sync(async(n).debugPortfoliosFor(address, considerUnspent))
 
+    def debugTrackedAssets(address: String): Seq[String] = sync(async(n).debugTrackedAssets(address))
+
+    def debugBalanceDetails(address: String, asset: String): DebugBalanceDetails = sync(async(n).debugBalanceDetails(address, asset))
+
     def broadcastIssue(source: KeyPair,
                        name: String,
                        description: String,

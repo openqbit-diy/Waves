@@ -19,6 +19,7 @@ trait WithDB extends BeforeAndAfterEach {
   def db: DB = currentDBInstance
 
   protected val ignoreSpendableBalanceChanged: Subject[(Address, Asset), (Address, Asset)] = Subject.empty
+  protected val ignoreTransactionCancels: Subject[(Address, Asset), (Address, Asset)] = Subject.empty
 
   override def beforeEach(): Unit = {
     currentDBInstance = LevelDBFactory.factory.open(path.toFile, new Options().createIfMissing(true))

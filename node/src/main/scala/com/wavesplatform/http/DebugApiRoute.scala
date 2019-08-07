@@ -9,7 +9,7 @@ import cats.implicits._
 import cats.kernel.Monoid
 import com.typesafe.config.{ConfigObject, ConfigRenderOptions}
 import com.wavesplatform.account.Address
-import com.wavesplatform.api.http.ApiError.InvalidAddress
+import com.wavesplatform.api.http.ApiError.{CustomValidationError, InvalidAddress}
 import com.wavesplatform.api.http._
 import com.wavesplatform.block.Block
 import com.wavesplatform.block.Block.BlockId
@@ -25,6 +25,7 @@ import com.wavesplatform.state.extensions.Distributions
 import com.wavesplatform.state.{Blockchain, LeaseBalance, NG, TransactionId}
 import com.wavesplatform.transaction.TxValidationError.InvalidRequestSignature
 import com.wavesplatform.transaction._
+import com.wavesplatform.transaction.assets.exchange.AssetPair
 import com.wavesplatform.transaction.smart.script.trace.TracedResult
 import com.wavesplatform.transaction.smart.{InvokeScriptTransaction, Verifier}
 import com.wavesplatform.utils.{ScorexLogging, Time}
@@ -76,7 +77,7 @@ case class DebugApiRoute(
   override val settings = ws.restAPISettings
   override lazy val route: Route = pathPrefix("debug") {
     stateChanges ~ withAuth {
-      blocks ~ state ~ info ~ stateWaves ~ rollback ~ rollbackTo ~ blacklist ~ portfolios ~ minerInfo ~ historyInfo ~ configInfo ~ print ~ validate
+      blocks ~ state ~ info ~ stateWaves ~ rollback ~ rollbackTo ~ blacklist ~ portfolios ~ trackedAssets ~ balanceDetails ~ minerInfo ~ historyInfo ~ configInfo ~ print ~ validate
     }
   }
 
@@ -155,6 +156,80 @@ case class DebugApiRoute(
           val base      = dst.portfolio(address)
           val portfolio = if (considerUnspent.getOrElse(true)) Monoid.combine(base, utxStorage.pessimisticPortfolio(address)) else base
           complete(Json.toJson(portfolio))
+      }
+    }
+  }
+
+  @Path("/trackedAssets/{address}")
+  @ApiOperation(
+    value = "Tracked assets on this address",
+    notes = "Get tracked assets on this address",
+    httpMethod = "GET"
+  )
+  @ApiImplicitParams(
+    Array(
+      new ApiImplicitParam(
+        name = "address",
+        value = "An address",
+        required = true,
+        dataType = "string",
+        paramType = "path"
+      )
+    )
+  )
+  @ApiResponses(Array(new ApiResponse(code = 200, message = "Array of tracked assets on this address")))
+  def trackedAssets: Route = path("trackedAssets" / Segment) { rawAddress =>
+    (get & withAuth) {
+      Address.fromString(rawAddress) match {
+        case Left(_) => complete(InvalidAddress)
+        case Right(address) =>
+          val blacklistedOnBlockchain = blockchain.trackedAssets(address).filter { asset =>
+            blockchain.badAddressAssetAmount(address, asset) > 0
+          }
+          val blacklistedOnUtx = utxStorage.badAddressAssets(address).keySet
+          complete(Json.toJson(blacklistedOnBlockchain ++ blacklistedOnUtx))
+      }
+    }
+  }
+
+  @Path("/balanceDetails/{address}/{asset}")
+  @ApiOperation(
+    value = "Bad and good assets on address",
+    notes = "Get information about bad and good assets on address",
+    httpMethod = "GET"
+  )
+  @ApiImplicitParams(
+    Array(
+      new ApiImplicitParam(
+        name = "address",
+        value = "An address",
+        required = true,
+        dataType = "string",
+        paramType = "path"
+      ),
+      new ApiImplicitParam(
+        name = "asset",
+        value = "An asset",
+        required = true,
+        dataType = "string",
+        paramType = "path"
+      )
+    )
+  )
+  @ApiResponses(Array(new ApiResponse(code = 200, message = "A JSON object with 'bad' and 'good' fields as longs")))
+  def balanceDetails: Route = path("balanceDetails" / Segment / Segment) { (rawAddress, rawAsset) =>
+    (get & withAuth) {
+      val args = for {
+        address <- Address.fromString(rawAddress).leftMap(_ => InvalidAddress)
+        asset   <- AssetPair.extractAssetId(rawAsset).toEither.leftMap(e => CustomValidationError(s"Can't parse asset: $rawAsset: ${e.getMessage}"))
+      } yield (address, asset)
+
+      args match {
+        case Left(e) => complete(e)
+        case Right((address, asset)) =>
+          val bad  = blockchain.badAddressAssetAmount(address, asset) + utxStorage.badAddressAssets(address).getOrElse(asset, 0L)
+          val good = blockchain.balance(address, asset) - bad
+          complete(Json.obj("bad" -> bad, "good" -> good))
       }
     }
   }

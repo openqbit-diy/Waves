@@ -31,7 +31,7 @@ import com.wavesplatform.metrics.Metrics
 import com.wavesplatform.mining.{Miner, MinerImpl}
 import com.wavesplatform.network.RxExtensionLoader.RxExtensionLoaderShutdownHook
 import com.wavesplatform.network._
-import com.wavesplatform.settings.WavesSettings
+import com.wavesplatform.settings.{TrackingAddressAssetsSettings, WavesSettings}
 import com.wavesplatform.state.Blockchain
 import com.wavesplatform.state.appender.{BlockAppender, ExtensionAppender, MicroblockAppender}
 import com.wavesplatform.transaction.smart.script.trace.TracedResult
@@ -69,6 +69,8 @@ class Application(val actorSystem: ActorSystem, val settings: WavesSettings, con
   private val LocalScoreBroadcastDebounce = 1.second
 
   private val spendableBalanceChanged = ConcurrentSubject.publish[(Address, Asset)]
+
+  private val trackingAddressAssets = ConcurrentSubject.publish[(Address, Asset)]
 
   private val blockchainUpdater = StorageFactory(settings, db, time, spendableBalanceChanged)
 
@@ -112,7 +114,24 @@ class Application(val actorSystem: ActorSystem, val settings: WavesSettings, con
 
     val establishedConnections = new ConcurrentHashMap[Channel, PeerInfo]
     val allChannels            = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE)
-    val utxStorage             = new UtxPoolImpl(time, blockchainUpdater, spendableBalanceChanged, settings.utxSettings)
+
+    val utxStorage =
+      new UtxPoolImpl(
+        time,
+        blockchainUpdater,
+        spendableBalanceChanged,
+        trackingAddressAssets,
+        settings.utxSettings,
+        getBadAssetsDiff = (txId, diff) =>
+          TrackingAddressAssetsSettings.trackingDiff(
+            settings.blockchainSettings.functionalitySettings.trackingAddressAssets,
+            txId,
+            diff.portfolios,
+            blockchainUpdater.balance,
+            blockchainUpdater.badAddressAssetAmount
+        )
+      )
+
     maybeUtx = Some(utxStorage)
 
     val knownInvalidBlocks = new InvalidBlockStorageImpl(settings.synchronizationSettings.invalidBlocksStorage)
@@ -221,6 +240,7 @@ class Application(val actorSystem: ActorSystem, val settings: WavesSettings, con
       override def broadcastTransaction(tx: Transaction): TracedResult[ValidationError, Boolean] = utxSynchronizer.publish(tx)
       override def spendableBalanceChanged: Observable[(Address, Asset)] = app.spendableBalanceChanged
       override def actorSystem: ActorSystem                              = app.actorSystem
+      override def trackingAddressAssets: Observable[(Address, Asset)]   = app.trackingAddressAssets
     }
 
     extensions = settings.extensions.map { extensionClassName =>
@@ -315,6 +335,7 @@ class Application(val actorSystem: ActorSystem, val settings: WavesSettings, con
       }
 
       spendableBalanceChanged.onComplete()
+      trackingAddressAssets.onComplete()
       utx.close()
 
       shutdownAndWait(historyRepliesScheduler, "HistoryReplier", 5.minutes.some)

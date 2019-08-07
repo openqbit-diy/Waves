@@ -768,6 +768,14 @@ class BlockchainUpdaterImpl(
     }
   }
 
+  override def trackedAssets(address: Address): Set[Asset] = ngState.foldLeft(blockchain.trackedAssets(address)) {
+    _ ++ _.bestLiquidDiff.badAssetsOfAddress.getOrElse(address, Map.empty).keySet
+  }
+
+  override def badAddressAssetAmount(address: Address, assetId: Asset): Long = ngState.foldLeft(blockchain.badAddressAssetAmount(address, assetId)) {
+    _ + _.bestLiquidDiff.badAssetsOfAddress.getOrElse(address, Map.empty).getOrElse(assetId, 0L)
+  }
+
   override def leaseBalance(address: Address): LeaseBalance = readLock {
     ngState match {
       case Some(ng) =>

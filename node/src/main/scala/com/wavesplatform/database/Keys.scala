@@ -9,7 +9,7 @@ import com.wavesplatform.common.utils.EitherExt2
 import com.wavesplatform.lang.script.{Script, ScriptReader}
 import com.wavesplatform.state._
 import com.wavesplatform.transaction.Asset.IssuedAsset
-import com.wavesplatform.transaction.{Transaction, TransactionParsers}
+import com.wavesplatform.transaction.{Asset, Transaction, TransactionParsers}
 
 object Keys {
   import KeyHelpers._
@@ -39,7 +39,7 @@ object Keys {
   def leaseBalance(addressId: BigInt)(height: Int): Key[LeaseBalance] =
     Key("lease-balance", hAddr(13, height, addressId), readLeaseBalance, writeLeaseBalance)
   def leaseStatusHistory(leaseId: ByteStr): Key[Seq[Int]] = historyKey("lease-status-history", 14, leaseId.arr)
-  val LeaseStatusPrefix: Short = 15
+  val LeaseStatusPrefix: Short                            = 15
   def leaseStatus(leaseId: ByteStr)(height: Int): Key[Boolean] =
     Key("lease-status", hBytes(LeaseStatusPrefix, height, leaseId.arr), _(0) == 1, active => Array[Byte](if (active) 1 else 0))
 
@@ -172,6 +172,17 @@ object Keys {
   def blockReward(height: Int): Key[Option[Long]] =
     Key.opt("block-reward", h(BlockRewardPrefix, height), Longs.fromByteArray, Longs.toByteArray)
 
-  val wavesAmountPrefix: Short = 58
+  val wavesAmountPrefix: Short              = 58
   def wavesAmount(height: Int): Key[BigInt] = Key("waves-amount", h(wavesAmountPrefix, height), Option(_).fold(BigInt(0))(BigInt(_)), _.toByteArray)
+
+  // Tracking
+
+  def trackedAssets(addressId: BigInt): Key[Set[Asset]] =
+    Key("tracked-assets", addr(312, addressId), readAssets, writeAssets)
+
+  def trackedAssetsHistory(addressId: BigInt, asset: Asset): Key[Seq[Int]] =
+    historyKey("tracked-assets-history", 313, addressId.toByteArray ++ writeAsset(asset))
+
+  def badAssets(addressId: BigInt, asset: Asset)(height: Int): Key[Long] =
+    Key("bad-assets", hBytes(314, height, addressId.toByteArray ++ writeAsset(asset)), Option(_).fold(0L)(Longs.fromByteArray), Longs.toByteArray)
 }

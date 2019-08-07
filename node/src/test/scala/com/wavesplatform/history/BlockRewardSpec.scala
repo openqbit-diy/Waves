@@ -11,7 +11,7 @@ import com.wavesplatform.features.BlockchainFeatures
 import com.wavesplatform.features.FeatureProvider._
 import com.wavesplatform.lagonaki.mocks.TestBlock
 import com.wavesplatform.mining.MiningConstraint
-import com.wavesplatform.settings.{Constants, FunctionalitySettings, RewardsSettings}
+import com.wavesplatform.settings.{Constants, FunctionalitySettings, RewardsSettings, TrackingAddressAssetsSettings}
 import com.wavesplatform.state.Blockchain
 import com.wavesplatform.state.diffs.BlockDiffer
 import com.wavesplatform.transaction.Asset.Waves
@@ -37,7 +37,8 @@ class BlockRewardSpec extends FreeSpec with ScalaCheckPropertyChecks with WithDo
           BlockchainFeatures.BlockReward.id    -> BlockRewardActivationHeight,
           BlockchainFeatures.NG.id             -> NGActivationHeight,
           BlockchainFeatures.FeeSponsorship.id -> -10
-        )
+        ),
+        trackingAddressAssets = TrackingAddressAssetsSettings.empty
       ),
       rewardsSettings = RewardsSettings(
         10,
@@ -287,7 +288,8 @@ class BlockRewardSpec extends FreeSpec with ScalaCheckPropertyChecks with WithDo
           BlockchainFeatures.BlockReward.id    -> 4,
           BlockchainFeatures.NG.id             -> NGActivationHeight,
           BlockchainFeatures.FeeSponsorship.id -> -10
-        )
+        ),
+        trackingAddressAssets = TrackingAddressAssetsSettings.empty
       ),
       rewardsSettings = RewardsSettings(12, 6 * Constants.UnitsInWave, 1 * Constants.UnitsInWave, 6)
     )
@@ -351,7 +353,8 @@ class BlockRewardSpec extends FreeSpec with ScalaCheckPropertyChecks with WithDo
           BlockchainFeatures.BlockReward.id    -> 4,
           BlockchainFeatures.NG.id             -> NGActivationHeight,
           BlockchainFeatures.FeeSponsorship.id -> -10
-        )
+        ),
+        trackingAddressAssets = TrackingAddressAssetsSettings.empty
       ),
       rewardsSettings = RewardsSettings(3, 6 * Constants.UnitsInWave, 1 * Constants.UnitsInWave, 2)
     )

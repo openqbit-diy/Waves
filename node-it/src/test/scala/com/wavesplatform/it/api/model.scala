@@ -357,3 +357,8 @@ case class PaymentRequest(amount: Long, fee: Long, sender: String, recipient: St
 object PaymentRequest {
   implicit val paymentFormat: Format[PaymentRequest] = Json.format
 }
+
+case class DebugBalanceDetails(bad: Long, good: Long)
+object DebugBalanceDetails {
+  implicit val format: Format[DebugBalanceDetails] = Json.format
+}
