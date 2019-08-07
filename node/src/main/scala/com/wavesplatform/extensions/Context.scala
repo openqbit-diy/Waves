@@ -21,5 +21,6 @@ trait Context {
 
   def broadcastTransaction(tx: Transaction): TracedResult[ValidationError, Boolean]
   def spendableBalanceChanged: Observable[(Address, Asset)]
+  def trackingAddressAssets: Observable[(Address, Asset)]
   def actorSystem: ActorSystem
 }
