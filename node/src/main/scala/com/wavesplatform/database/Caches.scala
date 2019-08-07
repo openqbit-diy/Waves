@@ -134,6 +134,11 @@ abstract class Caches(spendableBalanceChanged: Observer[(Address, Asset)]) exten
   override def balance(address: Address, mayBeAssetId: Asset): Long = balancesCache.get(address -> mayBeAssetId)
   protected def loadBalance(req: (Address, Asset)): Long
 
+  private val badAssetsOfAddressCache: LoadingCache[(Address, Asset), java.lang.Long] = cache(dbSettings.maxCacheSize * 16, loadBadAssets)
+  protected def discardTrackedAddressAssets(key: (Address, Asset)): Unit              = badAssetsOfAddressCache.invalidate(key)
+  override def badAddressAssetAmount(address: Address, assetId: Asset): Long          = badAssetsOfAddressCache.get(address -> assetId)
+  protected def loadBadAssets(req: (Address, Asset)): Long
+
   private val assetDescriptionCache: LoadingCache[IssuedAsset, Option[AssetDescription]] = cache(dbSettings.maxCacheSize, loadAssetDescription)
   protected def loadAssetDescription(asset: IssuedAsset): Option[AssetDescription]
   protected def discardAssetDescription(asset: IssuedAsset): Unit             = assetDescriptionCache.invalidate(asset)
@@ -155,7 +160,8 @@ abstract class Caches(spendableBalanceChanged: Observer[(Address, Asset)]) exten
   override def hasScript(address: Address): Boolean =
     Option(scriptCache.getIfPresent(address)).map(_.nonEmpty).getOrElse(hasScriptBytes(address))
 
-  private val assetScriptCache: LoadingCache[IssuedAsset, Option[(Script, Long)]] = cache(dbSettings.maxCacheSize, loadAssetScript(_).map(withComplexity))
+  private val assetScriptCache: LoadingCache[IssuedAsset, Option[(Script, Long)]] =
+    cache(dbSettings.maxCacheSize, loadAssetScript(_).map(withComplexity))
   protected def loadAssetScript(asset: IssuedAsset): Option[Script]
   protected def hasAssetScriptBytes(asset: IssuedAsset): Boolean
   protected def discardAssetScript(asset: IssuedAsset): Unit = assetScriptCache.invalidate(asset)
@@ -197,24 +203,27 @@ abstract class Caches(spendableBalanceChanged: Observer[(Address, Asset)]) exten
   override def lastBlockReward: Option[Long] = loadLastBlockReward()
 
   //noinspection ScalaStyle
-  protected def doAppend(block: Block,
-                         carry: Long,
-                         newAddresses: Map[Address, BigInt],
-                         wavesBalances: Map[BigInt, Long],
-                         assetBalances: Map[BigInt, Map[IssuedAsset, Long]],
-                         leaseBalances: Map[BigInt, LeaseBalance],
-                         addressTransactions: Map[AddressId, List[TransactionId]],
-                         leaseStates: Map[ByteStr, Boolean],
-                         reissuedAssets: Map[IssuedAsset, AssetInfo],
-                         filledQuantity: Map[ByteStr, VolumeAndFee],
-                         scripts: Map[BigInt, Option[(Script, Long)]],
-                         assetScripts: Map[IssuedAsset, Option[(Script, Long)]],
-                         data: Map[BigInt, AccountDataInfo],
-                         aliases: Map[Alias, BigInt],
-                         sponsorship: Map[IssuedAsset, Sponsorship],
-                         totalFee: Long,
-                         reward: Option[Long],
-                         scriptResults: Map[ByteStr, InvokeScriptResult]): Unit
+  protected def doAppend(
+      block: Block,
+      carry: Long,
+      newAddresses: Map[Address, BigInt],
+      wavesBalances: Map[BigInt, Long],
+      assetBalances: Map[BigInt, Map[IssuedAsset, Long]],
+      leaseBalances: Map[BigInt, LeaseBalance],
+      addressTransactions: Map[AddressId, List[TransactionId]],
+      leaseStates: Map[ByteStr, Boolean],
+      reissuedAssets: Map[IssuedAsset, AssetInfo],
+      filledQuantity: Map[ByteStr, VolumeAndFee],
+      scripts: Map[BigInt, Option[(Script, Long)]],
+      assetScripts: Map[IssuedAsset, Option[(Script, Long)]],
+      data: Map[BigInt, AccountDataInfo],
+      aliases: Map[Alias, BigInt],
+      sponsorship: Map[IssuedAsset, Sponsorship],
+      totalFee: Long,
+      reward: Option[Long],
+      scriptResults: Map[ByteStr, InvokeScriptResult],
+      badAssetsOfAddress: Map[BigInt, Map[Asset, Long]]
+  ): Unit
 
   def append(diff: Diff, carryFee: Long, totalFee: Long, reward: Option[Long], block: Block): Unit = {
     val newHeight = current._1 + 1
@@ -271,6 +280,25 @@ abstract class Caches(spendableBalanceChanged: Observer[(Address, Asset)]) exten
       newPortfolios += address
     }
 
+    val newBadAssetsOfAddress          = Map.newBuilder[BigInt, Map[Asset, Long]]
+    val badAssetsOfAddressCacheUpdates = Map.newBuilder[(Address, Asset), java.lang.Long]
+    for {
+      (address, badAssets) <- diff.badAssetsOfAddress
+      if badAssets.nonEmpty
+    } {
+      val aid = addressId(address)
+
+      val updated = badAssets.map {
+        case (asset, balanceDiff) =>
+          val updated = badAddressAssetAmount(address, asset) + balanceDiff
+          badAssetsOfAddressCacheUpdates += (address, asset) -> updated
+
+          asset -> updated
+      }
+
+      newBadAssetsOfAddress += aid -> updated
+    }
+
     val newFills = for {
       (orderId, fillInfo) <- diff.orderFills
     } yield orderId -> volumeAndFeeCache.get(orderId).combine(fillInfo)
@@ -318,7 +346,8 @@ abstract class Caches(spendableBalanceChanged: Observer[(Address, Asset)]) exten
       diff.sponsorship,
       totalFee,
       reward,
-      diff.scriptResults
+      diff.scriptResults,
+      newBadAssetsOfAddress.result()
     )
 
     val emptyData = Map.empty[(Address, String), Option[DataEntry[_]]]
@@ -347,6 +376,8 @@ abstract class Caches(spendableBalanceChanged: Observer[(Address, Asset)]) exten
     accountDataCache.putAll(newData.asJava)
 
     forgetBlocks()
+
+    badAssetsOfAddressCache.putAll(badAssetsOfAddressCacheUpdates.result().asJava)
   }
 
   protected def doRollback(targetBlockId: ByteStr): Seq[Block]
