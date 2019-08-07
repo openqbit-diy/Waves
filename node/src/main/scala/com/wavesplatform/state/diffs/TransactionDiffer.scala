@@ -3,6 +3,7 @@ package com.wavesplatform.state.diffs
 import cats.implicits._
 import com.wavesplatform.lang.ValidationError
 import com.wavesplatform.metrics._
+import com.wavesplatform.settings.TrackingAddressAssetsSettings
 import com.wavesplatform.state._
 import com.wavesplatform.transaction.TxValidationError.UnsupportedTransactionType
 import com.wavesplatform.transaction._
@@ -58,7 +59,16 @@ object TransactionDiffer extends ScorexLogging {
         .measureForType(tx.builder.typeId) {
           BalanceDiffValidation(blockchain, currentBlockHeight, blockchain.settings.functionalitySettings)(diff)
         }
-    } yield positiveDiff
+    } yield
+      positiveDiff.copy(
+        badAssetsOfAddress = TrackingAddressAssetsSettings.trackingDiff(
+          blockchain.settings.functionalitySettings.trackingAddressAssets,
+          tx.id(),
+          positiveDiff.portfolios,
+          blockchain.balance,
+          blockchain.badAddressAssetAmount
+        )
+      )
   }.leftMap(TransactionValidationError(_, tx))
 
   private def unverified(

@@ -137,7 +137,8 @@ case class Diff(transactions: collection.Map[ByteStr, (Int, Transaction, Set[Add
                 sponsorship: Map[IssuedAsset, Sponsorship],
                 scriptsRun: Int,
                 scriptsComplexity: Long,
-                scriptResults: Map[ByteStr, InvokeScriptResult])
+                scriptResults: Map[ByteStr, InvokeScriptResult],
+                badAssetsOfAddress: Map[Address, Map[Asset, Long]])
 
 object Diff {
   def stateOps(portfolios: Map[Address, Portfolio] = Map.empty,
@@ -149,7 +150,8 @@ object Diff {
                assetScripts: Map[IssuedAsset, Option[(Script, Long)]] = Map.empty,
                accountData: Map[Address, AccountDataInfo] = Map.empty,
                sponsorship: Map[IssuedAsset, Sponsorship] = Map.empty,
-               scriptResults: Map[ByteStr, InvokeScriptResult] = Map.empty): Diff =
+               scriptResults: Map[ByteStr, InvokeScriptResult] = Map.empty,
+               badAssetsOfAddress: Map[Address, Map[Asset, Long]] = Map.empty): Diff =
     Diff(
       transactions = LinkedHashMap(),
       portfolios = portfolios,
@@ -163,7 +165,8 @@ object Diff {
       sponsorship = sponsorship,
       scriptsRun = 0,
       scriptResults = scriptResults,
-      scriptsComplexity = 0
+      scriptsComplexity = 0,
+      badAssetsOfAddress = badAssetsOfAddress
     )
 
   def apply(height: Int,
@@ -179,7 +182,8 @@ object Diff {
             sponsorship: Map[IssuedAsset, Sponsorship] = Map.empty,
             scriptsRun: Int = 0,
             scriptsComplexity: Long = 0,
-            scriptResults: Map[ByteStr, InvokeScriptResult] = Map.empty): Diff =
+            scriptResults: Map[ByteStr, InvokeScriptResult] = Map.empty,
+            badAssetsOfAddress: Map[Address, Map[Asset, Long]] = Map.empty): Diff =
     Diff(
       // should be changed to VectorMap after 2.13 https://github.com/scala/scala/pull/6854
       transactions = LinkedHashMap((tx.id(), (height, tx, (portfolios.keys ++ accountData.keys).toSet))),
@@ -194,10 +198,11 @@ object Diff {
       sponsorship = sponsorship,
       scriptsRun = scriptsRun,
       scriptResults = scriptResults,
-      scriptsComplexity = scriptsComplexity
+      scriptsComplexity = scriptsComplexity,
+      badAssetsOfAddress = badAssetsOfAddress
     )
 
-  val empty = new Diff(LinkedHashMap(), Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, 0, 0, Map.empty)
+  val empty = new Diff(LinkedHashMap(), Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, 0, 0, Map.empty, Map.empty)
 
   implicit val diffMonoid = new Monoid[Diff] {
     override def empty: Diff = Diff.empty
@@ -216,7 +221,8 @@ object Diff {
         sponsorship = older.sponsorship.combine(newer.sponsorship),
         scriptsRun = older.scriptsRun.combine(newer.scriptsRun),
         scriptResults = older.scriptResults.combine(newer.scriptResults),
-        scriptsComplexity = older.scriptsComplexity + newer.scriptsComplexity
+        scriptsComplexity = older.scriptsComplexity + newer.scriptsComplexity,
+        badAssetsOfAddress = Monoid.combine(older.badAssetsOfAddress, newer.badAssetsOfAddress)
       )
   }
 }
