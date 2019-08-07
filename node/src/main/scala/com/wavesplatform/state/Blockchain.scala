@@ -100,6 +100,8 @@ trait Blockchain {
 
   def balance(address: Address, mayBeAssetId: Asset = Waves): Long
 
+  def isBlacklisted(address: Address, assetId: Asset): Boolean
+
   def assetDistribution(asset: IssuedAsset): AssetDistribution
   def assetDistributionAtHeight(asset: IssuedAsset,
                                 height: Int,

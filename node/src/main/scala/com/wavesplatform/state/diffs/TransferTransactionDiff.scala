@@ -5,6 +5,7 @@ import com.wavesplatform.account.Address
 import com.wavesplatform.features.BlockchainFeatures
 import com.wavesplatform.features.FeatureProvider._
 import com.wavesplatform.lang.ValidationError
+import com.wavesplatform.settings.BlacklistedAddressAssetsSettings
 import com.wavesplatform.state._
 import com.wavesplatform.transaction.Asset.{IssuedAsset, Waves}
 import com.wavesplatform.transaction.TxValidationError
@@ -70,7 +71,9 @@ object TransferTransactionDiff {
         tx,
         portfolios,
         scriptsRun = DiffsCommon.countScriptRuns(blockchain, tx),
-        scriptsComplexity = DiffsCommon.countScriptsComplexity(blockchain, tx))
+        scriptsComplexity = DiffsCommon.countScriptsComplexity(blockchain, tx),
+        blacklistedAddressAssets = BlacklistedAddressAssetsSettings.from(tx.sender, portfolios, blockchain.settings)
+      )
   }
 
   private def validateOverflow(blockchain: Blockchain, tx: TransferTransaction) = {

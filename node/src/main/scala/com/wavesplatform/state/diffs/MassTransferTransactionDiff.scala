@@ -3,6 +3,7 @@ package com.wavesplatform.state.diffs
 import cats.implicits._
 import com.wavesplatform.account.Address
 import com.wavesplatform.lang.ValidationError
+import com.wavesplatform.settings.{BlacklistedAddressAssetsSettings, FunctionalitySettings}
 import com.wavesplatform.state._
 import com.wavesplatform.transaction.Asset.{IssuedAsset, Waves}
 import com.wavesplatform.transaction.TxValidationError.{GenericError, Validation}
@@ -11,7 +12,8 @@ import com.wavesplatform.transaction.transfer._
 
 object MassTransferTransactionDiff {
 
-  def apply(blockchain: Blockchain, blockTime: Long, height: Int)(tx: MassTransferTransaction): Either[ValidationError, Diff] = {
+  def apply(blockchain: Blockchain, s: FunctionalitySettings, blockTime: Long, height: Int)(
+      tx: MassTransferTransaction): Either[ValidationError, Diff] = {
     def parseTransfer(xfer: ParsedTransfer): Validation[(Map[Address, Portfolio], Long)] = {
       for {
         recipientAddr <- blockchain.resolveAlias(xfer.address)
@@ -45,11 +47,14 @@ object MassTransferTransactionDiff {
 
       Either.cond(
         assetIssued,
-        Diff(height,
+        Diff(
+          height,
           tx,
           completePortfolio,
           scriptsRun = DiffsCommon.countScriptRuns(blockchain, tx),
-          scriptsComplexity = DiffsCommon.countScriptsComplexity(blockchain, tx)),
+          scriptsComplexity = DiffsCommon.countScriptsComplexity(blockchain, tx),
+          blacklistedAddressAssets = BlacklistedAddressAssetsSettings.from(tx.sender, completePortfolio, s.blacklistedAddressAssets)
+        ),
         GenericError(s"Attempt to transfer a nonexistent asset")
       )
     }

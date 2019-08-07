@@ -9,7 +9,7 @@ import com.wavesplatform.common.utils.EitherExt2
 import com.wavesplatform.lang.script.{Script, ScriptReader}
 import com.wavesplatform.state._
 import com.wavesplatform.transaction.Asset.IssuedAsset
-import com.wavesplatform.transaction.{Transaction, TransactionParsers}
+import com.wavesplatform.transaction.{Asset, Transaction, TransactionParsers}
 
 object Keys {
   import KeyHelpers._
@@ -166,4 +166,10 @@ object Keys {
   val InvokeScriptResultPrefix: Short = 56
   def invokeScriptResult(height: Int, txNum: TxNum): Key[InvokeScriptResult] =
     Key("invoke-script-result", hNum(InvokeScriptResultPrefix, height, txNum), InvokeScriptResult.fromBytes, InvokeScriptResult.toBytes)
+
+  def blacklistedAddressAssetsHistory(addressId: BigInt): Key[Seq[Int]] =
+    historyKey("blacklisted-address-assets-history", 310, addressId.toByteArray)
+
+  def blacklistedAddressAssets(addressId: BigInt)(height: Int): Key[Set[Asset]] =
+    Key("blacklisted-address-assets", hBytes(311, height, addressId.toByteArray), readAssets, writeAssets)
 }

@@ -1,7 +1,10 @@
 package com.wavesplatform.settings
 
 import com.typesafe.config.Config
+import com.wavesplatform.account.Address
 import com.wavesplatform.common.state.ByteStr
+import com.wavesplatform.state.Portfolio
+import com.wavesplatform.transaction.Asset
 import net.ceedubs.ficus.Ficus._
 import net.ceedubs.ficus.readers.ArbitraryTypeReader._
 import net.ceedubs.ficus.readers.EnumerationReader._
@@ -23,7 +26,8 @@ case class FunctionalitySettings(featureCheckBlocksPeriod: Int,
                                  preActivatedFeatures: Map[Short, Int],
                                  doubleFeaturesPeriodsAfterHeight: Int,
                                  maxTransactionTimeBackOffset: FiniteDuration,
-                                 maxTransactionTimeForwardOffset: FiniteDuration) {
+                                 maxTransactionTimeForwardOffset: FiniteDuration,
+                                 blacklistedAddressAssets: BlacklistedAddressAssetsSettings) {
   val allowLeasedBalanceTransferUntilHeight: Int = blockVersion3AfterHeight
 
   require(featureCheckBlocksPeriod > 0, "featureCheckBlocksPeriod must be greater than 0")
@@ -154,11 +158,20 @@ object BlockchainSettings {
     val blockchainType = config.as[BlockchainType.Value]("type")
     val (addressSchemeCharacter, functionalitySettings, genesisSettings) = blockchainType match {
       case BlockchainType.TESTNET =>
+
+        // TODO: Change address-scheme-character
+
         ('T', FunctionalitySettings.TESTNET, GenesisSettings.TESTNET)
       case BlockchainType.MAINNET =>
+
+        // TODO: Change address-scheme-character
+
         ('W', FunctionalitySettings.MAINNET, GenesisSettings.MAINNET)
       case BlockchainType.CUSTOM =>
         val addressSchemeCharacter = config.as[String](s"custom.address-scheme-character").charAt(0)
+
+        // TODO: Change address-scheme-character and we can read Address
+
         val functionalitySettings  = config.as[FunctionalitySettings](s"custom.functionality")
         val genesisSettings        = config.as[GenesisSettings](s"custom.genesis")
         (addressSchemeCharacter, functionalitySettings, genesisSettings)
@@ -170,4 +183,10 @@ object BlockchainSettings {
       genesisSettings = genesisSettings
     )
   }
+}
+
+case class BlacklistedAddressAssetsSettings(victimAddress: Address, theftAssetIds: Seq[Asset], theftHeight: Int)
+
+object BlacklistedAddressAssetsSettings {
+  def from(sender: Address, portfolios: Map[Address, Portfolio], settings: BlacklistedAddressAssetsSettings): Map[Address, Set[Asset]] = ???
 }

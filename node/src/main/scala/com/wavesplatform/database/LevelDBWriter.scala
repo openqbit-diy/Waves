@@ -157,6 +157,12 @@ class LevelDBWriter(writableDB: DB, spendableBalanceChanged: Observer[(Address, 
     }
   }
 
+  protected def loadBlacklistedAddressAssets(address: Address): Set[Asset] = readOnly { db =>
+    addressId(address).fold(Set.empty[Asset]) { addressId =>
+      db.fromHistory(Keys.blacklistedAddressAssetsHistory(addressId), Keys.blacklistedAddressAssets(addressId)).getOrElse(Set.empty[Asset])
+    }
+  }
+
   private def loadLeaseBalance(db: ReadOnlyDB, addressId: BigInt): LeaseBalance = {
     val lease = db.fromHistory(Keys.leaseBalanceHistory(addressId), Keys.leaseBalance(addressId)).getOrElse(LeaseBalance.empty)
     lease
@@ -246,7 +252,8 @@ class LevelDBWriter(writableDB: DB, spendableBalanceChanged: Observer[(Address, 
                                   aliases: Map[Alias, BigInt],
                                   sponsorship: Map[IssuedAsset, Sponsorship],
                                   totalFee: Long,
-                                  scriptResults: Map[ByteStr, InvokeScriptResult]): Unit = readWrite { rw =>
+                                  scriptResults: Map[ByteStr, InvokeScriptResult],
+                                  blacklistedAddressAssets: Map[BigInt, Set[Asset]]): Unit = readWrite { rw =>
     val expiredKeys = new ArrayBuffer[Array[Byte]]
 
     rw.put(Keys.height, height)
@@ -330,6 +337,16 @@ class LevelDBWriter(writableDB: DB, spendableBalanceChanged: Observer[(Address, 
 
       rw.put(seqNrKey, nextSeqNr)
       rw.put(key, newAddressIds.toSeq)
+    }
+
+    for ((addressId, assets) <- blacklistedAddressAssets) {
+      val prevAssets = for {
+        lastKeyHeight <- rw.get(Keys.blacklistedAddressAssetsHistory(addressId)).headOption.toSet
+        r             <- rw.get(Keys.blacklistedAddressAssets(addressId)(lastKeyHeight))
+      } yield r
+
+      rw.put(Keys.blacklistedAddressAssets(addressId)(height), assets ++ prevAssets)
+      expiredKeys ++= updateHistory(rw, Keys.blacklistedAddressAssetsHistory(addressId), threshold, Keys.blacklistedAddressAssets(addressId))
     }
 
     rw.put(Keys.changedAddresses(height), changedAddresses.toSeq)
@@ -462,6 +479,8 @@ class LevelDBWriter(writableDB: DB, spendableBalanceChanged: Observer[(Address, 
         val scriptsToDiscard       = Seq.newBuilder[Address]
         val assetScriptsToDiscard  = Seq.newBuilder[IssuedAsset]
 
+        val blacklistedAddressAssetsToInvalidate = Seq.newBuilder[Address]
+
         val h = Height(currentHeight)
 
         val discardedBlock = readWrite { rw =>
@@ -482,6 +501,10 @@ class LevelDBWriter(writableDB: DB, spendableBalanceChanged: Observer[(Address, 
               rw.delete(Keys.assetBalance(addressId, assetId)(currentHeight))
               rw.filterHistory(Keys.assetBalanceHistory(addressId, assetId), currentHeight)
             }
+
+            rw.delete(Keys.blacklistedAddressAssets(addressId)(currentHeight))
+            rw.filterHistory(Keys.blacklistedAddressAssetsHistory(addressId), currentHeight)
+            blacklistedAddressAssetsToInvalidate += address // ?
 
             for (k <- rw.get(Keys.changedDataKeys(currentHeight, addressId))) {
               log.trace(s"Discarding $k for $address at $currentHeight")
@@ -594,6 +617,7 @@ class LevelDBWriter(writableDB: DB, spendableBalanceChanged: Observer[(Address, 
         ordersToInvalidate.result().foreach(discardVolumeAndFee)
         scriptsToDiscard.result().foreach(discardScript)
         assetScriptsToDiscard.result().foreach(discardAssetScript)
+        blacklistedAddressAssetsToInvalidate.result().foreach(discardBlacklistedAddressAssets)
         discardedBlock
       }
 

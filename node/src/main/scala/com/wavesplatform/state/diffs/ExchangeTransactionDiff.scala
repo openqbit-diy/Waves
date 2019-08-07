@@ -5,6 +5,7 @@ import cats.implicits._
 import com.wavesplatform.account.Address
 import com.wavesplatform.features.BlockchainFeatures
 import com.wavesplatform.lang.ValidationError
+import com.wavesplatform.settings.{BlacklistedAddressAssetsSettings, FunctionalitySettings}
 import com.wavesplatform.state._
 import com.wavesplatform.transaction.Asset
 import com.wavesplatform.transaction.Asset.IssuedAsset
@@ -15,7 +16,7 @@ import scala.util.Right
 
 object ExchangeTransactionDiff {
 
-  def apply(blockchain: Blockchain, height: Int)(tx: ExchangeTransaction): Either[ValidationError, Diff] = {
+  def apply(blockchain: Blockchain, s: FunctionalitySettings, height: Int)(tx: ExchangeTransaction): Either[ValidationError, Diff] = {
 
     val matcher = tx.buyOrder.matcherPublicKey.toAddress
     val buyer   = tx.buyOrder.senderPublicKey.toAddress
@@ -119,7 +120,8 @@ object ExchangeTransactionDiff {
           tx.sellOrder.id() -> VolumeAndFee(tx.amount, tx.sellMatcherFee)
         ),
         scriptsRun = scripts,
-        scriptsComplexity = scriptsComplexity
+        scriptsComplexity = scriptsComplexity,
+        blacklistedAddressAssets = BlacklistedAddressAssetsSettings.from(tx.sender, portfolios, s.blacklistedAddressAssets)
       )
     }
   }

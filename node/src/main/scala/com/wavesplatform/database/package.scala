@@ -16,7 +16,7 @@ import com.wavesplatform.consensus.nxt.NxtLikeConsensusBlockData
 import com.wavesplatform.crypto._
 import com.wavesplatform.lang.script.{Script, ScriptReader}
 import com.wavesplatform.state._
-import com.wavesplatform.transaction.{Transaction, TransactionParsers}
+import com.wavesplatform.transaction.{Asset, Transaction, TransactionParsers}
 import com.wavesplatform.utils.CloseableIterator
 import org.iq80.leveldb.{DB, ReadOptions}
 
@@ -86,6 +86,9 @@ package object database {
     val in = ByteBuffer.wrap(data)
     Seq.fill(d.length / 4)(in.getInt)
   }
+
+  def readAssets(data: Array[Byte]): Set[Asset] = ???
+  def writeAssets(data: Set[Asset]): Array[Byte] = ???
 
   def readTxIds(data: Array[Byte]): List[ByteStr] = Option(data).fold(List.empty[ByteStr]) { d =>
     val b   = ByteBuffer.wrap(d)
