@@ -6,6 +6,8 @@ import java.util.concurrent.ConcurrentHashMap
 
 import cats.Monoid
 import cats.syntax.monoid._
+import cats.instances.long.catsKernelStdGroupForLong
+import cats.instances.map.catsKernelStdCommutativeMonoidForMap
 import com.wavesplatform.account.{Address, Alias}
 import com.wavesplatform.common.state.ByteStr
 import com.wavesplatform.consensus.TransactionsOrdering
@@ -16,8 +18,8 @@ import com.wavesplatform.settings.UtxSettings
 import com.wavesplatform.state.diffs.TransactionDiffer
 import com.wavesplatform.state.diffs.TransactionDiffer.TransactionValidationError
 import com.wavesplatform.state.reader.CompositeBlockchain
-import com.wavesplatform.state.{Blockchain, Diff, Portfolio}
-import com.wavesplatform.transaction.Asset.IssuedAsset
+import com.wavesplatform.state.{Blockchain, Diff, LeaseBalance, Portfolio}
+import com.wavesplatform.transaction.Asset.{IssuedAsset, Waves}
 import com.wavesplatform.transaction.TxValidationError.{AlreadyInTheState, GenericError, SenderIsBlacklisted}
 import com.wavesplatform.transaction._
 import com.wavesplatform.transaction.assets.ReissueTransaction
@@ -26,6 +28,7 @@ import com.wavesplatform.transaction.smart.InvokeScriptTransaction
 import com.wavesplatform.transaction.smart.script.trace.TracedResult
 import com.wavesplatform.transaction.transfer._
 import com.wavesplatform.utils.{LoggerFacade, Schedulers, ScorexLogging, Time}
+import com.wavesplatform.utx.UtxPoolImpl.PessimisticPortfolios
 import kamon.Kamon
 import kamon.metric.MeasurementUnit
 import monix.execution.atomic.AtomicBoolean
@@ -43,9 +46,11 @@ class UtxPoolImpl(
     time: Time,
     blockchain: Blockchain,
     spendableBalanceChanged: Observer[(Address, Asset)],
+    blacklistedAddressAssets: Observer[(Address, Asset)],
     utxSettings: UtxSettings,
     nanoTimeSource: () => Long = () => System.nanoTime(),
-    enablePriorityPool: Boolean
+    enablePriorityPool: Boolean,
+    getBadAssetsDiff: (ByteStr, Diff) => Map[Address, Map[Asset, Long]]
 ) extends ScorexLogging
     with AutoCloseable
     with UtxPool {
@@ -57,7 +62,7 @@ class UtxPoolImpl(
 
   // State
   private[this] val transactions          = new ConcurrentHashMap[ByteStr, Transaction]()
-  private[this] val pessimisticPortfolios = new PessimisticPortfolios(spendableBalanceChanged, blockchain.transactionHeight(_).nonEmpty)
+  private[this] val pessimisticPortfolios = new PessimisticPortfolios(spendableBalanceChanged, blockchain.transactionHeight(_).nonEmpty, blacklistedAddressAssets, getBadAssetsDiff)
   private[this] val priorityTransactions  = mutable.LinkedHashMap.empty[ByteStr, Transaction]
 
   override def putIfNew(tx: Transaction): TracedResult[ValidationError, Boolean] = {
@@ -203,12 +208,14 @@ class UtxPoolImpl(
     diffEi.map(_ => true)
   }
 
-  override def spendableBalance(addr: Address, assetId: Asset): Long =
-    blockchain.balance(addr, assetId) -
-      assetId.fold(blockchain.leaseBalance(addr).out)(_ => 0L) +
-      pessimisticPortfolios
-        .getAggregated(addr)
-        .spendableBalanceOf(assetId)
+  override def spendableBalance(addr: Address, assetId: Asset): Long = {
+    val blockchainBalance              = blockchain.balance(addr, assetId)
+    val blockchainBlacklistedBalance   = blockchain.badAddressAssetAmount(addr, assetId)
+    val leasingCorrection              = assetId.fold(blockchain.leaseBalance(addr).out)(_ => 0L)
+    val pessimisticPortfolioCorrection = pessimisticPortfolios.getAggregated(addr).spendableBalanceOf(assetId)
+
+    blockchainBalance - leasingCorrection - blockchainBlacklistedBalance + pessimisticPortfolioCorrection
+  }
 
   override def pessimisticPortfolio(addr: Address): Portfolio =
     pessimisticPortfolios.getAggregated(addr)
@@ -398,6 +405,8 @@ class UtxPoolImpl(
     TxCleanup.runCleanupAsync()
   }
 
+  def badAddressAssets(address: Address): Map[Asset, Long] = pessimisticPortfolios.badAssetsByAddress(address)
+
   override def close(): Unit = {
     cleanupScheduler.shutdown()
   }
@@ -454,19 +463,51 @@ object UtxPoolImpl {
       validatedTransactions: Set[ByteStr]
   )
 
-  private class PessimisticPortfolios(spendableBalanceChanged: Observer[(Address, Asset)], isTxKnown: ByteStr => Boolean) {
+  private class PessimisticPortfolios(
+      spendableBalanceChanged: Observer[(Address, Asset)],
+      isTxKnown: ByteStr => Boolean,
+      blacklistedAddressAssets: Observer[(Address, Asset)],
+      getBadAssetsDiff: (ByteStr, Diff) => Map[Address, Map[Asset, Long]]
+  ) extends ScorexLogging {
     private type Portfolios = Map[Address, Portfolio]
-    private val transactionPortfolios = new ConcurrentHashMap[ByteStr, Portfolios]()
-    private val transactions          = new ConcurrentHashMap[Address, Set[ByteStr]]()
+
+    // Contains a negative amount of assets
+    private val pessimisticTxPortfolios = new ConcurrentHashMap[ByteStr, Portfolios]()
+    private val pessimisticTxsByAddress = new ConcurrentHashMap[Address, Set[ByteStr]]()
+
+    // Contains a positive amount of assets
+    private val trackedTxBadPortfolios = new ConcurrentHashMap[ByteStr, Map[Address, Map[Asset, Long]]]()
+    private val trackedTxsByAddress    = new ConcurrentHashMap[Address, Set[ByteStr]]()
 
     def add(txId: ByteStr, txDiff: Diff): Unit = {
       val pessimisticPortfolios         = txDiff.portfolios.map { case (addr, portfolio)        => addr -> portfolio.pessimistic }
       val nonEmptyPessimisticPortfolios = pessimisticPortfolios.filterNot { case (_, portfolio) => portfolio.isEmpty }
 
-      if (nonEmptyPessimisticPortfolios.nonEmpty &&
-          Option(transactionPortfolios.put(txId, nonEmptyPessimisticPortfolios)).isEmpty) {
+      val isNewPessimistic = Option(pessimisticTxPortfolios.put(txId, nonEmptyPessimisticPortfolios)).isEmpty
+      if (nonEmptyPessimisticPortfolios.nonEmpty && isNewPessimistic)
         nonEmptyPessimisticPortfolios.keys.foreach { address =>
-          transactions.put(address, transactions.getOrDefault(address, Set.empty) + txId)
+          pessimisticTxsByAddress.put(address, pessimisticTxsByAddress.getOrDefault(address, Set.empty) + txId)
+        }
+
+      // Senders of bad coins are not interesting for us. This is a PESSIMISTIC portfolio, we're all gonna die!
+      val badAssetsPessimisticDiff = getBadAssetsDiff(txId, txDiff).map {
+        case (address, diff) =>
+          address -> diff.filter {
+            case (_, v) => v > 0
+          }
+      }
+
+      if (badAssetsPessimisticDiff.nonEmpty) {
+        log.debug(s"Blacklists for $txId:\n${badAssetsPessimisticDiff.map(_.toString()).mkString("\n")}")
+
+        trackedTxBadPortfolios.put(txId, badAssetsPessimisticDiff)
+        badAssetsPessimisticDiff.foreach {
+          case (address, xs) =>
+            trackedTxsByAddress.compute(address, (_, currTxs) => Option(currTxs).getOrElse(Set.empty) + txId)
+            xs.keys.foreach { asset =>
+              val addressAsset = address -> asset
+              blacklistedAddressAssets.onNext(addressAsset)
+            }
         }
       }
 
@@ -476,30 +517,63 @@ object UtxPoolImpl {
       }
     }
 
-    def contains(txId: ByteStr): Boolean = transactionPortfolios.containsKey(txId)
+    def contains(txId: ByteStr): Boolean = pessimisticTxPortfolios.containsKey(txId)
 
+    /**
+      * @return Returns negative values (pessimistic and bad)
+      */
     def getAggregated(accountAddr: Address): Portfolio = {
       val portfolios = for {
-        txId <- transactions.getOrDefault(accountAddr, Set.empty).toSeq
+        txId <- pessimisticTxsByAddress.getOrDefault(accountAddr, Set.empty).toList
         if !isTxKnown(txId)
-        txPortfolios = transactionPortfolios.getOrDefault(txId, Map.empty[Address, Portfolio])
-        txAccountPortfolio <- txPortfolios.get(accountAddr).toSeq
+        txPortfolios = pessimisticTxPortfolios.getOrDefault(txId, Map.empty[Address, Portfolio])
+        txAccountPortfolio <- txPortfolios.get(accountAddr).toList
       } yield txAccountPortfolio
 
-      Monoid.combineAll(portfolios)
+      val pessimistic = Monoid.combineAll(portfolios)
+      val bad = {
+        val assets = badAssetsByAddress(accountAddr)
+        Portfolio(
+          balance = -assets.getOrElse(Waves, 0L),
+          lease = LeaseBalance.empty,
+          assets = assets.collect { case (k: IssuedAsset, v) => k -> -v }
+        )
+      }
+
+      Monoid.combine(pessimistic, bad)
     }
 
+    def badAssetsByAddress(theAddress: Address): Map[Asset, Long] =
+      Monoid.combineAll(
+        for {
+          txId <- trackedTxsByAddress.getOrDefault(theAddress, Set.empty)
+          if !isTxKnown(txId)
+          (address, assets) <- trackedTxBadPortfolios.getOrDefault(txId, Map.empty)
+          if address == theAddress
+        } yield assets
+      )
+
     def remove(txId: ByteStr): Unit = {
-      Option(transactionPortfolios.remove(txId)) match {
+      Option(pessimisticTxPortfolios.remove(txId)) match {
         case Some(txPortfolios) =>
           txPortfolios.foreach {
             case (addr, p) =>
-              transactions.computeIfPresent(addr, (_, prevTxs) => prevTxs - txId)
+              pessimisticTxsByAddress.computeIfPresent(addr, (_, prevTxs) => prevTxs - txId)
               p.assetIds.foreach(assetId => spendableBalanceChanged.onNext(addr -> assetId))
           }
         case None =>
       }
-    }
-  }
 
+      Option(trackedTxBadPortfolios.remove(txId)) match {
+        case Some(xs) =>
+          xs.foreach {
+            case (addr, assets) =>
+              trackedTxsByAddress.computeIfPresent(addr, (_, prevTxs) => prevTxs - txId)
+              assets.foreach { case (asset, _) => blacklistedAddressAssets.onNext(addr -> asset) }
+          }
+        case None =>
+      }
+    }
+
+  }
 }

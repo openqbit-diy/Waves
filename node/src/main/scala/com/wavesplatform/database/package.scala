@@ -1,6 +1,6 @@
 package com.wavesplatform
 
-import java.io.File
+import java.io.{ByteArrayOutputStream, File}
 import java.nio.ByteBuffer
 import java.util.{Map => JMap}
 
@@ -16,7 +16,8 @@ import com.wavesplatform.consensus.nxt.NxtLikeConsensusBlockData
 import com.wavesplatform.crypto._
 import com.wavesplatform.lang.script.{Script, ScriptReader}
 import com.wavesplatform.state._
-import com.wavesplatform.transaction.{Transaction, TransactionParsers}
+import com.wavesplatform.transaction.Asset.{IssuedAsset, Waves}
+import com.wavesplatform.transaction.{Asset, Transaction, TransactionParsers}
 import com.wavesplatform.utils.ScorexLogging
 import org.iq80.leveldb.{DB, Options, ReadOptions}
 
@@ -98,6 +99,39 @@ package object database extends ScorexLogging {
   def readIntSeq(data: Array[Byte]): Seq[Int] = Option(data).fold(Seq.empty[Int]) { d =>
     val in = ByteBuffer.wrap(data)
     Seq.fill(d.length / 4)(in.getInt)
+  }
+
+  def readAsset(from: ByteBuffer): Asset =
+    from.get() match {
+      case 0 => Waves
+      case 1 =>
+        val buffer = new Array[Byte](DigestSize)
+        from.get(buffer)
+        IssuedAsset(buffer)
+    }
+
+  def writeAsset(asset: Asset): Array[Byte] = asset match {
+    case Waves           => Array[Byte](0)
+    case IssuedAsset(id) => 1.toByte +: id.arr
+  }
+
+  def readAssets(data: Array[Byte]): Set[Asset] =
+    if (data == null) Set.empty
+    else {
+      val bb     = ByteBuffer.wrap(data)
+      val length = bb.getInt
+      val r      = Set.newBuilder[Asset]
+      (1 to length).foreach { _ =>
+        r += readAsset(bb)
+      }
+      r.result()
+    }
+
+  def writeAssets(data: Set[Asset]): Array[Byte] = {
+    val r = new ByteArrayOutputStream()
+    r.write(Ints.toByteArray(data.size))
+    data.foreach(asset => r.write(writeAsset(asset)))
+    r.toByteArray
   }
 
   def readTxIds(data: Array[Byte]): List[ByteStr] = Option(data).fold(List.empty[ByteStr]) { d =>
@@ -312,19 +346,21 @@ package object database extends ScorexLogging {
     val featureVotesCount = ndi.readInt()
     val featureVotes      = List.fill(featureVotesCount)(ndi.readShort()).toSet
 
-    val rewardVote        = if (version > 3) ndi.readLong() else -1L
+    val rewardVote = if (version > 3) ndi.readLong() else -1L
 
-    val generator         = ndi.readPublicKey
-    val signature         = ndi.readSignature
+    val generator = ndi.readPublicKey
+    val signature = ndi.readSignature
 
-    val header = new BlockHeader(timestamp,
-                                 version,
-                                 reference,
-                                 SignerData(generator, signature),
-                                 NxtLikeConsensusBlockData(baseTarget, genSig),
-                                 transactionCount,
-                                 featureVotes,
-                                 rewardVote)
+    val header = new BlockHeader(
+      timestamp,
+      version,
+      reference,
+      SignerData(generator, signature),
+      NxtLikeConsensusBlockData(baseTarget, genSig),
+      transactionCount,
+      featureVotes,
+      rewardVote
+    )
     (header, size)
   }
 

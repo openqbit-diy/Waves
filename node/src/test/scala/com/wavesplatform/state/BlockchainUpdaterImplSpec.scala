@@ -1,13 +1,12 @@
 package com.wavesplatform.state
 
-import com.typesafe.config.ConfigFactory
 import com.wavesplatform.account.{Address, KeyPair}
 import com.wavesplatform.block.Block
 import com.wavesplatform.common.utils.EitherExt2
 import com.wavesplatform.db.DBCacheSettings
 import com.wavesplatform.features.BlockchainFeatures
 import com.wavesplatform.lagonaki.mocks.TestBlock
-import com.wavesplatform.settings.{TestFunctionalitySettings, WavesSettings, loadConfig}
+import com.wavesplatform.settings.{TestFunctionalitySettings, WavesSettings}
 import com.wavesplatform.state.diffs.ENOUGH_AMT
 import com.wavesplatform.state.utils._
 import com.wavesplatform.transaction.Asset.Waves

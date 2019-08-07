@@ -53,6 +53,7 @@ import scala.concurrent.duration._
 
 private object UtxPoolSpecification {
   private val ignoreSpendableBalanceChanged = Subject.empty[(Address, Asset)]
+  private val ignoreTransactionCancels      = Subject.empty[(Address, Asset)]
 
   final case class TempDB(fs: FunctionalitySettings, dbSettings: DBSettings) {
     val path   = Files.createTempDirectory("leveldb-test")
@@ -176,7 +177,9 @@ class UtxPoolSpecification
         time,
         bcu,
         ignoreSpendableBalanceChanged,
+        ignoreTransactionCancels,
         UtxSettings(10, PoolDefaultMaxBytes, 1000, Set.empty, Set.empty, allowTransactionsFromSmartAccounts = true, allowSkipChecks = false),
+        getBadAssetsDiff = (_, _) => Map.empty,
         enablePriorityPool = true
       )
     val amountPart = (senderBalance - fee) / 2 - fee
@@ -193,7 +196,9 @@ class UtxPoolSpecification
             time,
             bcu,
             ignoreSpendableBalanceChanged,
+            ignoreTransactionCancels,
             UtxSettings(10, PoolDefaultMaxBytes, 1000, Set.empty, Set.empty, allowTransactionsFromSmartAccounts = true, allowSkipChecks = false),
+            getBadAssetsDiff = (_, _) => Map.empty,
             enablePriorityPool = true
           )
         (sender, bcu, utxPool)
@@ -208,7 +213,16 @@ class UtxPoolSpecification
   } yield {
     val settings =
       UtxSettings(10, PoolDefaultMaxBytes, 1000, Set.empty, Set.empty, allowTransactionsFromSmartAccounts = true, allowSkipChecks = false)
-    val utxPool = new UtxPoolImpl(time, bcu, ignoreSpendableBalanceChanged, settings, enablePriorityPool = true)
+    val utxPool =
+      new UtxPoolImpl(
+        time,
+        bcu,
+        ignoreSpendableBalanceChanged,
+        ignoreTransactionCancels,
+        settings,
+        getBadAssetsDiff = (_, _) => Map.empty,
+        enablePriorityPool = true
+      )
     txs.foreach(utxPool.putIfNew(_))
     (sender, bcu, utxPool, time, settings)
   }).label("withValidPayments")
@@ -221,7 +235,16 @@ class UtxPoolSpecification
   } yield {
     val settings =
       UtxSettings(txs.size, PoolDefaultMaxBytes, 1000, Set.empty, Set.empty, allowTransactionsFromSmartAccounts = true, allowSkipChecks = false)
-    val utxPool = new UtxPoolImpl(time, bcu, ignoreSpendableBalanceChanged, settings, enablePriorityPool = true)
+    val utxPool =
+      new UtxPoolImpl(
+        time,
+        bcu,
+        ignoreSpendableBalanceChanged,
+        ignoreTransactionCancels,
+        settings,
+        getBadAssetsDiff = (_, _) => Map.empty,
+        enablePriorityPool = true
+      )
     (sender, bcu, utxPool, txs, time, settings)
   }).label("withValidPayments")
 
@@ -241,7 +264,16 @@ class UtxPoolSpecification
         allowTransactionsFromSmartAccounts = true,
         allowSkipChecks = false
       )
-    val utxPool = new UtxPoolImpl(time, bcu, ignoreSpendableBalanceChanged, settings, enablePriorityPool = true)
+    val utxPool =
+      new UtxPoolImpl(
+        time,
+        bcu,
+        ignoreSpendableBalanceChanged,
+        ignoreTransactionCancels,
+        settings,
+        getBadAssetsDiff = (_, _) => Map.empty,
+        enablePriorityPool = true
+      )
     (sender, utxPool, txs)
   }).label("withBlacklisted")
 
@@ -261,7 +293,16 @@ class UtxPoolSpecification
         allowTransactionsFromSmartAccounts = true,
         allowSkipChecks = false
       )
-    val utxPool = new UtxPoolImpl(time, bcu, ignoreSpendableBalanceChanged, settings, enablePriorityPool = true)
+    val utxPool =
+      new UtxPoolImpl(
+        time,
+        bcu,
+        ignoreSpendableBalanceChanged,
+        ignoreTransactionCancels,
+        settings,
+        getBadAssetsDiff = (_, _) => Map.empty,
+        enablePriorityPool = true
+      )
     (sender, utxPool, txs)
   }).label("withBlacklistedAndAllowedByRule")
 
@@ -284,7 +325,16 @@ class UtxPoolSpecification
           allowTransactionsFromSmartAccounts = true,
           allowSkipChecks = false
         )
-      val utxPool = new UtxPoolImpl(time, bcu, ignoreSpendableBalanceChanged, settings, enablePriorityPool = true)
+      val utxPool =
+        new UtxPoolImpl(
+          time,
+          bcu,
+          ignoreSpendableBalanceChanged,
+          ignoreTransactionCancels,
+          settings,
+          getBadAssetsDiff = (_, _) => Map.empty,
+          enablePriorityPool = true
+        )
       (sender, utxPool, txs)
     }).label("massTransferWithBlacklisted")
 
@@ -294,7 +344,16 @@ class UtxPoolSpecification
         val time = new TestTime()
 
         forAll(listOfN(count, transfer(sender, senderBalance / 2, time))) { txs =>
-          val utx = new UtxPoolImpl(time, bcu, ignoreSpendableBalanceChanged, utxSettings, enablePriorityPool = true)
+          val utx =
+            new UtxPoolImpl(
+              time,
+              bcu,
+              ignoreSpendableBalanceChanged,
+              ignoreTransactionCancels,
+              utxSettings,
+              getBadAssetsDiff = (_, _) => Map.empty,
+              enablePriorityPool = true
+            )
           f(txs, utx, time)
         }
     }
@@ -312,7 +371,9 @@ class UtxPoolSpecification
         time,
         bcu,
         ignoreSpendableBalanceChanged,
+        ignoreTransactionCancels,
         UtxSettings(10, PoolDefaultMaxBytes, 1000, Set.empty, Set.empty, allowTransactionsFromSmartAccounts = true, allowSkipChecks = false),
+        getBadAssetsDiff = (_, _) => Map.empty,
         enablePriorityPool = true
       )
       (utx, time, tx1, tx2)
@@ -347,7 +408,9 @@ class UtxPoolSpecification
         new TestTime(),
         bcu,
         ignoreSpendableBalanceChanged,
+        ignoreTransactionCancels,
         UtxSettings(10, PoolDefaultMaxBytes, 1000, Set.empty, Set.empty, allowTransactionsFromSmartAccounts = scEnabled, allowSkipChecks = false),
+        getBadAssetsDiff = (_, _) => Map.empty,
         enablePriorityPool = true
       )
 
@@ -391,7 +454,15 @@ class UtxPoolSpecification
             case ((headTransaction, vipTransaction), allowSkipChecks) =>
               val utxSettings =
                 UtxSettings(1, 152, 1, Set.empty, Set.empty, allowTransactionsFromSmartAccounts = true, allowSkipChecks = allowSkipChecks == 1)
-              val utx = new UtxPoolImpl(time, bcu, ignoreSpendableBalanceChanged, utxSettings, enablePriorityPool = true)
+              val utx = new UtxPoolImpl(
+                time,
+                bcu,
+                ignoreSpendableBalanceChanged,
+                ignoreTransactionCancels,
+                utxSettings,
+                getBadAssetsDiff = (_, _) => Map.empty,
+                enablePriorityPool = true
+              )
 
               utx.putIfNew(headTransaction).resultE shouldBe 'right
               utx.putIfNew(vipTransaction).resultE shouldBe (if (allowSkipChecks == 1) 'right else 'left)
@@ -482,7 +553,9 @@ class UtxPoolSpecification
           ntpTime,
           d.blockchainUpdater,
           ignoreSpendableBalanceChanged,
+          ignoreTransactionCancels,
           UtxSettings(9999999, PoolDefaultMaxBytes, 999999, Set.empty, Set.empty, allowTransactionsFromSmartAccounts = true, allowSkipChecks = false),
+          getBadAssetsDiff = (_, _) => Map.empty,
           enablePriorityPool = true
         )
         all((scripted ++ unscripted).map(tx => utx.putIfNew(tx).resultE)) shouldBe 'right
@@ -653,7 +726,17 @@ class UtxPoolSpecification
               }
             val settings =
               UtxSettings(10, PoolDefaultMaxBytes, 1000, Set.empty, Set.empty, allowTransactionsFromSmartAccounts = true, allowSkipChecks = false)
-            val utxPool = new UtxPoolImpl(time, bcu, ignoreSpendableBalanceChanged, settings, () => nanoTimeSource(), true)
+            val utxPool =
+              new UtxPoolImpl(
+                time,
+                bcu,
+                ignoreSpendableBalanceChanged,
+                ignoreTransactionCancels,
+                settings,
+                () => nanoTimeSource(),
+                getBadAssetsDiff = (_, _) => Map.empty,
+                enablePriorityPool = true
+              )
 
             utxPool.putIfNew(transfer).resultE.explicitGet()
             val (tx, _) = utxPool.packUnconfirmed(MultiDimensionalMiningConstraint.unlimited, 100.nanos)
@@ -679,7 +762,15 @@ class UtxPoolSpecification
             (blockchain.activatedFeatures _).when().returning(Map.empty)
 
             val utx =
-              new UtxPoolImpl(ntpTime, blockchain, ignoreSpendableBalanceChanged, WavesSettings.default().utxSettings, enablePriorityPool = true)
+              new UtxPoolImpl(
+                ntpTime,
+                blockchain,
+                ignoreSpendableBalanceChanged,
+                ignoreSpendableBalanceChanged,
+                WavesSettings.default().utxSettings,
+                getBadAssetsDiff = (_, _) => Map.empty,
+                enablePriorityPool = true
+              )
             (blockchain.balance _).when(*, *).returning(ENOUGH_AMT).repeat((rest.length + 1) * 2)
 
             (blockchain.balance _)
@@ -759,7 +850,15 @@ class UtxPoolSpecification
         case (tx1, nonScripted, scripted) =>
           val blockchain = createState(scripted.head.sender)
           val utx =
-            new UtxPoolImpl(ntpTime, blockchain, ignoreSpendableBalanceChanged, WavesSettings.default().utxSettings, enablePriorityPool = true)
+            new UtxPoolImpl(
+              ntpTime,
+              blockchain,
+              ignoreSpendableBalanceChanged,
+              ignoreSpendableBalanceChanged,
+              WavesSettings.default().utxSettings,
+              getBadAssetsDiff = (_, _) => Map.empty,
+              enablePriorityPool = true
+            )
           utx.putIfNew(tx1).resultE shouldBe 'right
           val minedTxs = scripted ++ nonScripted
           utx.addAndCleanup(minedTxs)
@@ -812,7 +911,9 @@ class UtxPoolSpecification
               ntpTime,
               blockchain,
               ignoreSpendableBalanceChanged,
+              ignoreSpendableBalanceChanged,
               WavesSettings.default().utxSettings,
+              getBadAssetsDiff = (_, _) => Map.empty,
               enablePriorityPool = true
             )
 
@@ -831,7 +932,9 @@ class UtxPoolSpecification
               ntpTime,
               blockchain,
               ignoreSpendableBalanceChanged,
+              ignoreSpendableBalanceChanged,
               WavesSettings.default().utxSettings,
+              getBadAssetsDiff = (_, _) => Map.empty,
               enablePriorityPool = false
             )
 
@@ -856,7 +959,15 @@ class UtxPoolSpecification
           (blockchain.balance _).when(tx2.sender.toAddress, *).returning(0) // Should be overriden in composite blockchain
 
           val utx =
-            new UtxPoolImpl(ntpTime, blockchain, ignoreSpendableBalanceChanged, WavesSettings.default().utxSettings, enablePriorityPool = true)
+            new UtxPoolImpl(
+              ntpTime,
+              blockchain,
+              ignoreSpendableBalanceChanged,
+              ignoreSpendableBalanceChanged,
+              WavesSettings.default().utxSettings,
+              getBadAssetsDiff = (_, _) => Map.empty,
+              enablePriorityPool = true
+            )
           utx.addAndCleanup(Seq(tx1))
           utx.invokePrivate(putNewTx(tx2, false)).resultE shouldBe 'right
           utx.invokePrivate(nonPriorityTransactions()) shouldBe Seq(tx2)
@@ -869,7 +980,15 @@ class UtxPoolSpecification
           (blockchain.balance _).when(*, *).returning(0) // All invalid
 
           val utx =
-            new UtxPoolImpl(ntpTime, blockchain, ignoreSpendableBalanceChanged, WavesSettings.default().utxSettings, enablePriorityPool = true)
+            new UtxPoolImpl(
+              ntpTime,
+              blockchain,
+              ignoreSpendableBalanceChanged,
+              ignoreSpendableBalanceChanged,
+              WavesSettings.default().utxSettings,
+              getBadAssetsDiff = (_, _) => Map.empty,
+              enablePriorityPool = true
+            )
           utx.addAndCleanup(Seq(tx1, tx2))
 
           eventually(Timeout(5 seconds), Interval(50 millis))(utx.all shouldBe empty)
@@ -911,7 +1030,15 @@ class UtxPoolSpecification
             implicit val scheduler = Scheduler.singleThread("ext-appender")
             val blockchain         = d.blockchainUpdater
             val utx =
-              new UtxPoolImpl(ntpTime, blockchain, ignoreSpendableBalanceChanged, WavesSettings.default().utxSettings, enablePriorityPool = true)
+              new UtxPoolImpl(
+                ntpTime,
+                blockchain,
+                ignoreSpendableBalanceChanged,
+                ignoreSpendableBalanceChanged,
+                WavesSettings.default().utxSettings,
+                getBadAssetsDiff = (_, _) => Map.empty,
+                enablePriorityPool = true
+              )
 
             val pos = stub[PoSSelector]
             (pos.validateBaseTarget _).when(*, *, *, *).returning(Right((): Unit))
