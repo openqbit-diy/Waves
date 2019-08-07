@@ -3,6 +3,7 @@ package com.wavesplatform.state.diffs
 import cats.implicits._
 import com.wavesplatform.lang.ValidationError
 import com.wavesplatform.metrics._
+import com.wavesplatform.settings.TrackingAddressAssetsSettings
 import com.wavesplatform.state._
 import com.wavesplatform.transaction.TxValidationError.UnsupportedTransactionType
 import com.wavesplatform.transaction._
@@ -31,10 +32,20 @@ object TransactionDiffer extends ScorexLogging {
     val func =
       if (verify) verified(prevBlockTimestamp, currentBlockTimestamp, currentBlockHeight) _
       else unverified(currentBlockTimestamp, currentBlockHeight) _
-    func(blockchain, tx)
+    func(blockchain, tx).map { diff =>
+      diff.copy(
+        badAssetsOfAddress = TrackingAddressAssetsSettings.trackingDiff(
+          blockchain.settings.functionalitySettings.trackingAddressAssets,
+          tx.id(),
+          diff.portfolios,
+          blockchain.balance,
+          blockchain.badAddressAssetAmount
+        )
+      )
+    }
   }
 
-  def verified(prevBlockTimestamp: Option[Long], currentBlockTimestamp: Long, currentBlockHeight: Int)(
+  private def verified(prevBlockTimestamp: Option[Long], currentBlockTimestamp: Long, currentBlockHeight: Int)(
       blockchain: Blockchain,
       tx: Transaction
   ): TracedResult[ValidationError, Diff] = {
