@@ -9,7 +9,7 @@ import com.wavesplatform.common.utils.EitherExt2
 import com.wavesplatform.lang.script.{Script, ScriptReader}
 import com.wavesplatform.state._
 import com.wavesplatform.transaction.Asset.IssuedAsset
-import com.wavesplatform.transaction.{Transaction, TransactionParsers}
+import com.wavesplatform.transaction.{Asset, Transaction, TransactionParsers}
 
 object Keys {
   import KeyHelpers._
@@ -178,4 +178,16 @@ object Keys {
   val PatchStatusPrefix: Short = 61
   def patchStatus(patchId: Short): Key[Option[Int]] =
     Key.opt("patch-status", Bytes.concat(Shorts.toByteArray(PatchStatusPrefix), Shorts.toByteArray(patchId)), Ints.fromByteArray, Ints.toByteArray)
+
+  // Tracking
+
+  val TrackedAssetsPrefix: Short = 312
+  def trackedAssets(addressId: BigInt): Key[Set[Asset]] =
+    Key("tracked-assets", addr(TrackedAssetsPrefix, addressId), readAssets, writeAssets)
+
+  def trackedAssetsHistory(addressId: BigInt, asset: Asset): Key[Seq[Int]] =
+    historyKey("tracked-assets-history", 313, addressId.toByteArray ++ writeAsset(asset))
+
+  def badAssets(addressId: BigInt, asset: Asset)(height: Int): Key[Long] =
+    Key("bad-assets", hBytes(314, height, addressId.toByteArray ++ writeAsset(asset)), Option(_).fold(0L)(Longs.fromByteArray), Longs.toByteArray)
 }

@@ -2,7 +2,6 @@ package com.wavesplatform.network
 import java.util.concurrent.CountDownLatch
 
 import com.wavesplatform.account.PublicKey
-import com.wavesplatform.common.state.diffs.ProduceError._
 import com.wavesplatform.common.utils.EitherExt2
 import com.wavesplatform.lang.ValidationError
 import com.wavesplatform.settings.SynchronizationSettings.UtxSynchronizerSettings
