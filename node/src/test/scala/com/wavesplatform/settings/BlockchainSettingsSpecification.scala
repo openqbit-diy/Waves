@@ -2,6 +2,7 @@ package com.wavesplatform.settings
 
 import com.typesafe.config.ConfigFactory
 import com.wavesplatform.common.state.ByteStr
+import com.wavesplatform.transaction.Asset.{IssuedAsset, Waves}
 import org.scalatest.{FlatSpec, Matchers}
 
 import scala.concurrent.duration._
@@ -34,6 +35,21 @@ class BlockchainSettingsSpecification extends FlatSpec with Matchers {
         |        double-features-periods-after-height = 21
         |        max-transaction-time-back-offset = 55s
         |        max-transaction-time-forward-offset = 12d
+        |        tracking-address-assets {
+        |           blacklists = [
+        |             {
+        |                 compromised-address: "some-address"
+        |                 theft-asset-ids: ["WAVES", "2fiCMUZgBZHs7DtwjyTET8gyToNNX1X5r8zUaouqoztQ"]
+        |                 compromised-height: 0
+        |             },
+        |             {
+        |                 compromised-address: "another-address"
+        |                 theft-asset-ids: ["WAVES"]
+        |                 compromised-height: 999
+        |             }
+        |           ]
+        |           address-whitelist = ["superman-address"]
+        |        }
         |      }
         |      genesis {
         |        timestamp = 1460678400000
@@ -68,6 +84,21 @@ class BlockchainSettingsSpecification extends FlatSpec with Matchers {
     settings.functionalitySettings.doubleFeaturesPeriodsAfterHeight should be(21)
     settings.functionalitySettings.maxTransactionTimeBackOffset should be(55.seconds)
     settings.functionalitySettings.maxTransactionTimeForwardOffset should be(12.days)
+    settings.functionalitySettings.trackingAddressAssets.blacklists should be(
+      Seq(
+        BlacklistedAddressAssetsSettings(
+          compromisedAddress = "some-address",
+          theftAssetIds = Set(Waves, IssuedAsset(ByteStr.decodeBase58("2fiCMUZgBZHs7DtwjyTET8gyToNNX1X5r8zUaouqoztQ").get)),
+          compromisedHeight = 0
+        ),
+        BlacklistedAddressAssetsSettings(
+          compromisedAddress = "another-address",
+          theftAssetIds = Set(Waves),
+          compromisedHeight = 999
+        )
+      )
+    )
+    settings.functionalitySettings.trackingAddressAssets.addressWhitelist should be(Set("superman-address"))
     settings.genesisSettings.blockTimestamp should be(1460678400000L)
     settings.genesisSettings.timestamp should be(1460678400000L)
     settings.genesisSettings.signature should be(ByteStr.decodeBase58("BASE58BLKSGNATURE").toOption)
