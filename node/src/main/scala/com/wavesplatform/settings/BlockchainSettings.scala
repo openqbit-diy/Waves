@@ -211,11 +211,12 @@ object TrackingAddressAssetsSettings {
       .map {
         case (address, portfolio) =>
           // TODO: minus?
-          val assets: Set[Asset] = portfolio.assets.collect {
-            case (asset, balanceDiff) if balanceDiff != 0 && shouldBlock(blockchain, currHeight, sender, address, asset, settings) => asset
-          }.toSet
+          val assets: Set[Asset] = portfolio.assets.keySet.collect {
+            case asset if shouldBlock(blockchain, currHeight, sender, address, asset, settings) => asset
+          }
           address -> assets
       }
+      .filter { case (_, assets) => assets.nonEmpty }
   }
 
   def shouldBlock(blockchain: Blockchain,
@@ -223,13 +224,20 @@ object TrackingAddressAssetsSettings {
                   sender: Address,
                   receiver: Address,
                   asset: Asset,
-                  settings: TrackingAddressAssetsSettings): Boolean =
-    !(settings.addressWhitelist.contains(sender.stringRepr) || settings.addressWhitelist.contains(receiver.stringRepr)) && {
-      blockchain.isBlacklisted(sender, asset) ||
-      shouldStartBlock(currHeight, sender, asset, settings) ||
-      shouldStartBlock(currHeight, receiver, asset, settings)
+                  settings: TrackingAddressAssetsSettings): Boolean = {
+    val a = settings.addressWhitelist.contains(sender.stringRepr)
+    val b = settings.addressWhitelist.contains(receiver.stringRepr)
+    val c = blockchain.isBlacklisted(sender, asset)
+    val d = shouldStartBlock(currHeight, sender, asset, settings)
+    val e = shouldStartBlock(currHeight, receiver, asset, settings)
+    val r = !(a || b) && {
+      c ||
+      d ||
+      e
     }
+    r
+  }
 
   def shouldStartBlock(currHeight: Int, address: Address, asset: Asset, settings: TrackingAddressAssetsSettings): Boolean =
-    settings.blacklistedHeight(address.stringRepr, asset).exists(_ >= currHeight)
+    settings.blacklistedHeight(address.stringRepr, asset).exists(currHeight >= _)
 }

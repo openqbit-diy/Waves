@@ -120,7 +120,6 @@ object ExchangeTransactionDiff {
         ),
         scriptsRun = scripts,
         scriptsComplexity = scriptsComplexity,
-        // TODO we should block matcher, add to settings
         blacklistedAddressAssets = TrackingAddressAssetsSettings.from(blockchain, height, tx.sender, portfolios, s.trackingAddressAssets)
       )
     }

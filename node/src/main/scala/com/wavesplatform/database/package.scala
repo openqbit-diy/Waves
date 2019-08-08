@@ -1,6 +1,6 @@
 package com.wavesplatform
 
-import java.io.IOException
+import java.io.{ByteArrayOutputStream, IOException}
 import java.nio.ByteBuffer
 import java.util.{Map => JMap}
 
@@ -16,6 +16,7 @@ import com.wavesplatform.consensus.nxt.NxtLikeConsensusBlockData
 import com.wavesplatform.crypto._
 import com.wavesplatform.lang.script.{Script, ScriptReader}
 import com.wavesplatform.state._
+import com.wavesplatform.transaction.Asset.{IssuedAsset, Waves}
 import com.wavesplatform.transaction.{Asset, Transaction, TransactionParsers}
 import com.wavesplatform.utils.CloseableIterator
 import org.iq80.leveldb.{DB, ReadOptions}
@@ -87,8 +88,34 @@ package object database {
     Seq.fill(d.length / 4)(in.getInt)
   }
 
-  def readAssets(data: Array[Byte]): Set[Asset] = ???
-  def writeAssets(data: Set[Asset]): Array[Byte] = ???
+  def readAssets(data: Array[Byte]): Set[Asset] = {
+    val bb     = ByteBuffer.wrap(data)
+    val length = bb.getInt
+    val r      = Set.newBuilder[Asset]
+    (1 to length).foreach { _ =>
+      val currAsset: Asset = bb.get() match {
+        case 0 => Waves
+        case 1 =>
+          val buffer = new Array[Byte](DigestSize)
+          bb.get(buffer)
+          IssuedAsset(buffer)
+      }
+      r += currAsset
+    }
+    r.result()
+  }
+
+  def writeAssets(data: Set[Asset]): Array[Byte] = {
+    val r = new ByteArrayOutputStream()
+    r.write(Ints.toByteArray(data.size))
+    data.foreach {
+      case Waves => r.write(0)
+      case IssuedAsset(id) =>
+        r.write(1)
+        r.write(id.arr)
+    }
+    r.toByteArray
+  }
 
   def readTxIds(data: Array[Byte]): List[ByteStr] = Option(data).fold(List.empty[ByteStr]) { d =>
     val b   = ByteBuffer.wrap(d)

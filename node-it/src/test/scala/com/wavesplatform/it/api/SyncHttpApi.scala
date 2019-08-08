@@ -148,6 +148,8 @@ object SyncHttpApi extends Assertions {
 
     def debugPortfoliosFor(address: String, considerUnspent: Boolean): Portfolio = sync(async(n).debugPortfoliosFor(address, considerUnspent))
 
+    def blacklistedAssets(address: String): Seq[String] = sync(async(n).blacklistedAssets(address))
+
     def broadcastIssue(source: KeyPair,
                        name: String,
                        description: String,

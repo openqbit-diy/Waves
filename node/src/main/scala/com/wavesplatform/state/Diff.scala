@@ -219,7 +219,7 @@ object Diff {
         scriptsRun = older.scriptsRun.combine(newer.scriptsRun),
         scriptResults = older.scriptResults.combine(newer.scriptResults),
         scriptsComplexity = older.scriptsComplexity + newer.scriptsComplexity,
-        blacklistedAddressAssets = Monoid.combine(older.blacklistedAddressAssets, newer.blacklistedAddressAssets) // TODO check it works
+        blacklistedAddressAssets = Monoid.combine(older.blacklistedAddressAssets, newer.blacklistedAddressAssets)
       )
   }
 }
