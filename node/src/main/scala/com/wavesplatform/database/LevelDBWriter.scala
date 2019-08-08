@@ -341,7 +341,7 @@ class LevelDBWriter(writableDB: DB, spendableBalanceChanged: Observer[(Address, 
 
     for ((addressId, assets) <- blacklistedAddressAssets) {
       val prevAssets = for {
-        lastKeyHeight <- rw.get(Keys.blacklistedAddressAssetsHistory(addressId)).headOption.toSet
+        lastKeyHeight <- rw.get(Keys.blacklistedAddressAssetsHistory(addressId)).headOption.toSet[Int]
         r             <- rw.get(Keys.blacklistedAddressAssets(addressId)(lastKeyHeight))
       } yield r
 

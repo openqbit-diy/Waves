@@ -5,7 +5,7 @@ import com.wavesplatform.account.Address
 import com.wavesplatform.features.BlockchainFeatures
 import com.wavesplatform.features.FeatureProvider._
 import com.wavesplatform.lang.ValidationError
-import com.wavesplatform.settings.BlacklistedAddressAssetsSettings
+import com.wavesplatform.settings.TrackingAddressAssetsSettings
 import com.wavesplatform.state._
 import com.wavesplatform.transaction.Asset.{IssuedAsset, Waves}
 import com.wavesplatform.transaction.TxValidationError
@@ -64,15 +64,21 @@ object TransferTransactionDiff {
       _ <- Either.cond(
         blockTime <= blockchain.settings.functionalitySettings.allowUnissuedAssetsUntil || (assetIssued && feeAssetIssued),
         (),
-        GenericError(s"Unissued assets are not allowed after allowUnissuedAssetsUntil=${blockchain.settings.functionalitySettings.allowUnissuedAssetsUntil}")
+        GenericError(
+          s"Unissued assets are not allowed after allowUnissuedAssetsUntil=${blockchain.settings.functionalitySettings.allowUnissuedAssetsUntil}")
       )
     } yield
-      Diff(height,
+      Diff(
+        height,
         tx,
         portfolios,
         scriptsRun = DiffsCommon.countScriptRuns(blockchain, tx),
         scriptsComplexity = DiffsCommon.countScriptsComplexity(blockchain, tx),
-        blacklistedAddressAssets = BlacklistedAddressAssetsSettings.from(tx.sender, portfolios, blockchain.settings)
+        blacklistedAddressAssets = TrackingAddressAssetsSettings.from(blockchain,
+                                                                      height,
+                                                                      tx.sender,
+                                                                      portfolios,
+                                                                      blockchain.settings.functionalitySettings.trackingAddressAssets)
       )
   }
 

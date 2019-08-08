@@ -5,7 +5,7 @@ import cats.implicits._
 import com.wavesplatform.account.Address
 import com.wavesplatform.features.BlockchainFeatures
 import com.wavesplatform.lang.ValidationError
-import com.wavesplatform.settings.{BlacklistedAddressAssetsSettings, FunctionalitySettings}
+import com.wavesplatform.settings.{TrackingAddressAssetsSettings, FunctionalitySettings}
 import com.wavesplatform.state._
 import com.wavesplatform.transaction.Asset
 import com.wavesplatform.transaction.Asset.IssuedAsset
@@ -68,8 +68,7 @@ object ExchangeTransactionDiff {
           ordersScripted
       }
       scriptsComplexity = {
-        val assetsComplexity = assets.toSeq
-          .flatten
+        val assetsComplexity = assets.toSeq.flatten
           .flatMap(_.script)
           .map(DiffsCommon.verifierComplexity)
           .sum
@@ -121,7 +120,8 @@ object ExchangeTransactionDiff {
         ),
         scriptsRun = scripts,
         scriptsComplexity = scriptsComplexity,
-        blacklistedAddressAssets = BlacklistedAddressAssetsSettings.from(tx.sender, portfolios, s.blacklistedAddressAssets)
+        // TODO we should block matcher, add to settings
+        blacklistedAddressAssets = TrackingAddressAssetsSettings.from(blockchain, height, tx.sender, portfolios, s.trackingAddressAssets)
       )
     }
   }

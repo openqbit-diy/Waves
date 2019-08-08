@@ -3,12 +3,12 @@ package com.wavesplatform.settings
 import com.typesafe.config.Config
 import com.wavesplatform.account.Address
 import com.wavesplatform.common.state.ByteStr
-import com.wavesplatform.state.Portfolio
+import com.wavesplatform.state.{Blockchain, Portfolio}
 import com.wavesplatform.transaction.Asset
 import net.ceedubs.ficus.Ficus._
 import net.ceedubs.ficus.readers.ArbitraryTypeReader._
 import net.ceedubs.ficus.readers.EnumerationReader._
-import net.ceedubs.ficus.readers.ValueReader
+import net.ceedubs.ficus.readers.{CollectionReaders, ValueReader}
 
 import scala.concurrent.duration._
 
@@ -27,7 +27,7 @@ case class FunctionalitySettings(featureCheckBlocksPeriod: Int,
                                  doubleFeaturesPeriodsAfterHeight: Int,
                                  maxTransactionTimeBackOffset: FiniteDuration,
                                  maxTransactionTimeForwardOffset: FiniteDuration,
-                                 blacklistedAddressAssets: BlacklistedAddressAssetsSettings) {
+                                 trackingAddressAssets: TrackingAddressAssetsSettings) {
   val allowLeasedBalanceTransferUntilHeight: Int = blockVersion3AfterHeight
 
   require(featureCheckBlocksPeriod > 0, "featureCheckBlocksPeriod must be greater than 0")
@@ -69,7 +69,8 @@ object FunctionalitySettings {
     preActivatedFeatures = Map.empty,
     doubleFeaturesPeriodsAfterHeight = 810000,
     maxTransactionTimeBackOffset = 120.minutes,
-    maxTransactionTimeForwardOffset = 90.minutes
+    maxTransactionTimeForwardOffset = 90.minutes,
+    trackingAddressAssets = TrackingAddressAssetsSettings(Seq.empty, Set.empty)
   )
 
   val TESTNET = apply(
@@ -87,7 +88,8 @@ object FunctionalitySettings {
     preActivatedFeatures = Map.empty,
     doubleFeaturesPeriodsAfterHeight = Int.MaxValue,
     maxTransactionTimeBackOffset = 120.minutes,
-    maxTransactionTimeForwardOffset = 90.minutes
+    maxTransactionTimeForwardOffset = 90.minutes,
+    trackingAddressAssets = TrackingAddressAssetsSettings(Seq.empty, Set.empty)
   )
 
   val configPath = "waves.blockchain.custom.functionality"
@@ -148,6 +150,11 @@ object BlockchainType extends Enumeration {
 }
 
 object BlockchainSettings {
+  import Asset.assetReader
+
+  implicit def setReader[T](itemReader: ValueReader[T]): ValueReader[Set[T]] =
+    CollectionReaders.traversableReader[List, T](itemReader, List.canBuildFrom[T]).map(_.toSet)
+
   implicit val valueReader: ValueReader[BlockchainSettings] =
     (cfg: Config, path: String) => fromConfig(cfg.getConfig(path))
 
@@ -155,23 +162,16 @@ object BlockchainSettings {
   def fromRootConfig(config: Config): BlockchainSettings = config.as[BlockchainSettings]("waves.blockchain")
 
   private[this] def fromConfig(config: Config): BlockchainSettings = {
+    def trackingAddressAssets = config.as[TrackingAddressAssetsSettings]("custom.functionality.tracking-address-assets")
+
     val blockchainType = config.as[BlockchainType.Value]("type")
     val (addressSchemeCharacter, functionalitySettings, genesisSettings) = blockchainType match {
       case BlockchainType.TESTNET =>
-
-        // TODO: Change address-scheme-character
-
-        ('T', FunctionalitySettings.TESTNET, GenesisSettings.TESTNET)
+        ('T', FunctionalitySettings.TESTNET.copy(trackingAddressAssets = trackingAddressAssets), GenesisSettings.TESTNET)
       case BlockchainType.MAINNET =>
-
-        // TODO: Change address-scheme-character
-
-        ('W', FunctionalitySettings.MAINNET, GenesisSettings.MAINNET)
+        ('W', FunctionalitySettings.MAINNET.copy(trackingAddressAssets = trackingAddressAssets), GenesisSettings.MAINNET)
       case BlockchainType.CUSTOM =>
         val addressSchemeCharacter = config.as[String](s"custom.address-scheme-character").charAt(0)
-
-        // TODO: Change address-scheme-character and we can read Address
-
         val functionalitySettings  = config.as[FunctionalitySettings](s"custom.functionality")
         val genesisSettings        = config.as[GenesisSettings](s"custom.genesis")
         (addressSchemeCharacter, functionalitySettings, genesisSettings)
@@ -185,8 +185,51 @@ object BlockchainSettings {
   }
 }
 
-case class BlacklistedAddressAssetsSettings(victimAddress: Address, theftAssetIds: Seq[Asset], theftHeight: Int)
+case class TrackingAddressAssetsSettings(blacklists: Seq[BlacklistedAddressAssetsSettings], addressWhitelist: Set[String]) {
+  val blacklistActivation: Map[(String, Asset), Int] = {
+    val xs = for {
+      b <- blacklists
+      if !addressWhitelist.contains(b.compromisedAddress)
+      asset <- b.theftAssetIds
+    } yield ((b.compromisedAddress, asset), b.compromisedHeight)
 
-object BlacklistedAddressAssetsSettings {
-  def from(sender: Address, portfolios: Map[Address, Portfolio], settings: BlacklistedAddressAssetsSettings): Map[Address, Set[Asset]] = ???
+    xs.toMap
+  }
+
+  def blacklistedHeight(address: String, assetId: Asset): Option[Int] = blacklistActivation.get(address -> assetId)
+}
+
+case class BlacklistedAddressAssetsSettings(compromisedAddress: String, theftAssetIds: Set[Asset], compromisedHeight: Int)
+
+object TrackingAddressAssetsSettings {
+  def from(blockchain: Blockchain,
+           currHeight: Int,
+           sender: Address,
+           portfolios: Map[Address, Portfolio],
+           settings: TrackingAddressAssetsSettings): Map[Address, Set[Asset]] = {
+    portfolios
+      .map {
+        case (address, portfolio) =>
+          // TODO: minus?
+          val assets: Set[Asset] = portfolio.assets.collect {
+            case (asset, balanceDiff) if balanceDiff != 0 && shouldBlock(blockchain, currHeight, sender, address, asset, settings) => asset
+          }.toSet
+          address -> assets
+      }
+  }
+
+  def shouldBlock(blockchain: Blockchain,
+                  currHeight: Int,
+                  sender: Address,
+                  receiver: Address,
+                  asset: Asset,
+                  settings: TrackingAddressAssetsSettings): Boolean =
+    !(settings.addressWhitelist.contains(sender.stringRepr) || settings.addressWhitelist.contains(receiver.stringRepr)) && {
+      blockchain.isBlacklisted(sender, asset) ||
+      shouldStartBlock(currHeight, sender, asset, settings) ||
+      shouldStartBlock(currHeight, receiver, asset, settings)
+    }
+
+  def shouldStartBlock(currHeight: Int, address: Address, asset: Asset, settings: TrackingAddressAssetsSettings): Boolean =
+    settings.blacklistedHeight(address.stringRepr, asset).exists(_ >= currHeight)
 }

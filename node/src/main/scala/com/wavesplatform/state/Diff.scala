@@ -148,7 +148,8 @@ object Diff {
                assetScripts: Map[IssuedAsset, Option[Script]] = Map.empty,
                accountData: Map[Address, AccountDataInfo] = Map.empty,
                sponsorship: Map[IssuedAsset, Sponsorship] = Map.empty,
-               scriptResults: Map[ByteStr, InvokeScriptResult] = Map.empty): Diff =
+               scriptResults: Map[ByteStr, InvokeScriptResult] = Map.empty,
+               blacklistedAddressAssets: Map[Address, Set[Asset]] = Map.empty): Diff =
     Diff(
       transactions = Map(),
       portfolios = portfolios,
@@ -162,7 +163,8 @@ object Diff {
       sponsorship = sponsorship,
       scriptsRun = 0,
       scriptResults = scriptResults,
-      scriptsComplexity = 0
+      scriptsComplexity = 0,
+      blacklistedAddressAssets = blacklistedAddressAssets
     )
 
   def apply(height: Int,
@@ -193,10 +195,11 @@ object Diff {
       sponsorship = sponsorship,
       scriptsRun = scriptsRun,
       scriptResults = scriptResults,
-      scriptsComplexity = scriptsComplexity
+      scriptsComplexity = scriptsComplexity,
+      blacklistedAddressAssets = blacklistedAddressAssets
     )
 
-  val empty = new Diff(Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, 0, 0, Map.empty)
+  val empty = new Diff(Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, Map.empty, 0, 0, Map.empty, Map.empty)
 
   implicit val diffMonoid = new Monoid[Diff] {
     override def empty: Diff = Diff.empty
@@ -215,7 +218,8 @@ object Diff {
         sponsorship = older.sponsorship.combine(newer.sponsorship),
         scriptsRun = older.scriptsRun.combine(newer.scriptsRun),
         scriptResults = older.scriptResults.combine(newer.scriptResults),
-        scriptsComplexity = older.scriptsComplexity + newer.scriptsComplexity
+        scriptsComplexity = older.scriptsComplexity + newer.scriptsComplexity,
+        blacklistedAddressAssets = Monoid.combine(older.blacklistedAddressAssets, newer.blacklistedAddressAssets) // TODO check it works
       )
   }
 }

@@ -136,8 +136,8 @@ abstract class Caches(spendableBalanceChanged: Observer[(Address, Asset)]) exten
   protected def loadBalance(req: (Address, Asset)): Long
 
   private val blacklistedAddressAssetsCache: LoadingCache[Address, Set[Asset]] = cache(dbSettings.maxCacheSize * 16, loadBlacklistedAddressAssets)
-  protected def discardBlacklistedAddressAssets(key: Address): Unit = blacklistedAddressAssetsCache.invalidate(key)
-  override def isBlacklisted(address: Address, asset: Asset): Boolean = blacklistedAddressAssetsCache.get(address).contains(asset)
+  protected def discardBlacklistedAddressAssets(key: Address): Unit            = blacklistedAddressAssetsCache.invalidate(key)
+  override def isBlacklisted(address: Address, asset: Asset): Boolean          = blacklistedAddressAssetsCache.get(address).contains(asset)
   protected def loadBlacklistedAddressAssets(address: Address): Set[Asset]
 
   private val assetDescriptionCache: LoadingCache[IssuedAsset, Option[AssetDescription]] = cache(dbSettings.maxCacheSize, loadAssetDescription)
@@ -206,7 +206,7 @@ abstract class Caches(spendableBalanceChanged: Observer[(Address, Asset)]) exten
                          sponsorship: Map[IssuedAsset, Sponsorship],
                          totalFee: Long,
                          scriptResults: Map[ByteStr, InvokeScriptResult],
-                         isBlacklisted: Map[Address, Asset]): Unit
+                         blacklistedAddressAssets: Map[BigInt, Set[Asset]]): Unit
 
   def append(diff: Diff, carryFee: Long, totalFee: Long, block: Block): Unit = {
     val newHeight = current._1 + 1
@@ -228,12 +228,13 @@ abstract class Caches(spendableBalanceChanged: Observer[(Address, Asset)]) exten
     log.trace(s"CACHE newAddressIds = $newAddressIds")
     log.trace(s"CACHE lastAddressId = $lastAddressId")
 
-    val wavesBalances        = Map.newBuilder[BigInt, Long]
-    val assetBalances        = Map.newBuilder[BigInt, Map[IssuedAsset, Long]]
-    val leaseBalances        = Map.newBuilder[BigInt, LeaseBalance]
-    val updatedLeaseBalances = Map.newBuilder[Address, LeaseBalance]
-    val newPortfolios        = Seq.newBuilder[Address]
-    val newBalances          = Map.newBuilder[(Address, Asset), java.lang.Long]
+    val wavesBalances               = Map.newBuilder[BigInt, Long]
+    val assetBalances               = Map.newBuilder[BigInt, Map[IssuedAsset, Long]]
+    val leaseBalances               = Map.newBuilder[BigInt, LeaseBalance]
+    val updatedLeaseBalances        = Map.newBuilder[Address, LeaseBalance]
+    val newPortfolios               = Seq.newBuilder[Address]
+    val newBalances                 = Map.newBuilder[(Address, Asset), java.lang.Long]
+    val newBlacklistedAddressAssets = Map.newBuilder[BigInt, Set[Asset]]
 
     for ((address, portfolioDiff) <- diff.portfolios) {
       val aid = addressId(address)
@@ -263,21 +264,16 @@ abstract class Caches(spendableBalanceChanged: Observer[(Address, Asset)]) exten
       newPortfolios += address
     }
 
-    // isBlacklisted
-//    val extraReservedBalances    = Map.newBuilder[BigInt, Map[ByteStr, Long]]
-    val isBlacklistedMap    = Map.newBuilder[BigInt, Map[ByteStr, Long]]
-    val newIsBlacklisted = Map.newBuilder[(Address, AssetId), java.lang.Long]
+    val blacklistedAddressAssetsCacheUpdates = Map.newBuilder[Address, Set[Asset]]
+    for {
+      (address, blacklistedAssets) <- diff.blacklistedAddressAssets
+      if blacklistedAssets.nonEmpty
+    } {
+      val aid                  = addressId(address)
+      val newBlacklistedAssets = blacklistedAddressAssetsCache.get(address) ++ blacklistedAssets
 
-    for ((address, portfolioDiff) <- diff.extraReserve if portfolioDiff.assets.nonEmpty) {
-      val aid = addressId(address)
-      val newAssetBalances = for ((assetId, balanceDiff) <- portfolioDiff.assets if balanceDiff != 0) yield {
-        val updatedBalance = extraReservedBalance(address, assetId) + balanceDiff
-        newExtraReservedBalances += (address, assetId) -> updatedBalance
-        assetId                                        -> updatedBalance
-      }
-      if (newAssetBalances.nonEmpty) {
-        extraReservedBalances += aid -> newAssetBalances
-      }
+      newBlacklistedAddressAssets += aid              -> newBlacklistedAssets
+      blacklistedAddressAssetsCacheUpdates += address -> newBlacklistedAssets
     }
 
     val newFills = for {
@@ -327,7 +323,7 @@ abstract class Caches(spendableBalanceChanged: Observer[(Address, Asset)]) exten
       diff.sponsorship,
       totalFee,
       diff.scriptResults,
-      isBlacklistedMap.result()
+      newBlacklistedAddressAssets.result()
     )
 
     for ((address, id)           <- newAddressIds) addressIdCache.put(address, Some(id))
@@ -341,7 +337,7 @@ abstract class Caches(spendableBalanceChanged: Observer[(Address, Asset)]) exten
     blocksTs.put(newHeight, block.timestamp)
     forgetBlocks()
 
-    blacklistedAddressAssetsCache.putAll(newIsBlacklisted.result().asJava)
+    blacklistedAddressAssetsCache.putAll(blacklistedAddressAssetsCacheUpdates.result().asJava)
   }
 
   protected def doRollback(targetBlockId: ByteStr): Seq[Block]
