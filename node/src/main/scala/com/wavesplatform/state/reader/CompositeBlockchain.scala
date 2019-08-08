@@ -29,8 +29,8 @@ final case class CompositeBlockchain(inner: Blockchain, maybeDiff: Option[Diff] 
   override def balance(address: Address, assetId: Asset): Long =
     inner.balance(address, assetId) + diff.portfolios.getOrElse(address, Portfolio.empty).balanceOf(assetId)
 
-  override def isBlacklisted(address: Address, assetId: Asset): Boolean =
-    inner.isBlacklisted(address, assetId) || diff.blacklistedAddressAssets.getOrElse(address, Set.empty).contains(assetId)
+  override def blacklistedAddressAssets(address: Address): Set[Asset] =
+    inner.blacklistedAddressAssets(address) ++ diff.blacklistedAddressAssets.getOrElse(address, Set.empty)
 
   override def leaseBalance(address: Address): LeaseBalance = {
     cats.Monoid.combine(inner.leaseBalance(address), diff.portfolios.getOrElse(address, Portfolio.empty).lease)

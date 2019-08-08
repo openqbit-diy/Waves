@@ -114,6 +114,7 @@ case class DebugApiRoute(ws: WavesSettings,
       ""
     }
   }
+
   @Path("/portfolios/{address}")
   @ApiOperation(
     value = "Portfolio",
@@ -151,6 +152,32 @@ case class DebugApiRoute(ws: WavesSettings,
     }
   }
 
+  @Path("/blacklistedAssets/{address}")
+  @ApiOperation(
+    value = "Blacklisted assets",
+    notes = "Get blacklisted assets on this address",
+    httpMethod = "GET"
+  )
+  @ApiImplicitParams(
+    Array(
+      new ApiImplicitParam(
+        name = "address",
+        value = "An address of portfolio",
+        required = true,
+        dataType = "string",
+        paramType = "path"
+      )
+    ))
+  @ApiResponses(Array(new ApiResponse(code = 200, message = "Array of blacklisted assets on this address")))
+  def blacklistedAssets: Route = path("blacklistedAssets" / Segment) { rawAddress =>
+    (get & withAuth) {
+      Address.fromString(rawAddress) match {
+        case Left(_)        => complete(InvalidAddress)
+        case Right(address) => complete(Json.toJson(blockchain.blacklistedAddressAssets(address)))
+      }
+    }
+  }
+
   @Path("/state")
   @ApiOperation(value = "State", notes = "Get current state", httpMethod = "GET")
   @ApiResponses(Array(new ApiResponse(code = 200, message = "Json state")))
@@ -168,7 +195,8 @@ case class DebugApiRoute(ws: WavesSettings,
     complete(ng.wavesDistribution(height).map(_.map { case (a, b) => a.stringRepr -> b }))
   }
 
-  private def rollbackToBlock(blockId: ByteStr, returnTransactionsToUtx: Boolean)(implicit ec: ExecutionContext): Future[Either[ValidationError, JsObject]] = {
+  private def rollbackToBlock(blockId: ByteStr, returnTransactionsToUtx: Boolean)(
+      implicit ec: ExecutionContext): Future[Either[ValidationError, JsObject]] = {
     rollbackTask(blockId).asyncBoundary
       .map(_.map { blocks =>
         allChannels.broadcast(LocalScoreChanged(ng.score))
@@ -343,7 +371,6 @@ case class DebugApiRoute(ws: WavesSettings,
   def validate: Route = (path("validate") & post) {
     handleExceptions(jsonExceptionHandler) {
       json[JsObject] { jsv =>
-
         val h  = blockchain.height
         val t0 = System.nanoTime
         val tracedDiff = for {
@@ -391,9 +418,11 @@ case class DebugApiRoute(ws: WavesSettings,
   }
 
   @Path("/stateChanges/address/{address}/limit/{limit}")
-  @ApiOperation(value = "List of transactions by address with state changes",
-                notes = "Get list of transactions with state changes where specified address has been involved",
-                httpMethod = "GET")
+  @ApiOperation(
+    value = "List of transactions by address with state changes",
+    notes = "Get list of transactions with state changes where specified address has been involved",
+    httpMethod = "GET"
+  )
   @ApiImplicitParams(
     Array(
       new ApiImplicitParam(name = "address", value = "Address", required = true, dataType = "string", paramType = "path"),

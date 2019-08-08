@@ -692,8 +692,8 @@ class BlockchainUpdaterImpl(blockchain: LevelDBWriter, spendableBalanceChanged: 
     }
   }
 
-  override def isBlacklisted(address: Address, assetId: Asset): Boolean = ngState.foldLeft(blockchain.isBlacklisted(address, assetId)) {
-    _ || _.bestLiquidDiff.blacklistedAddressAssets.getOrElse(address, Set.empty).contains(assetId)
+  override def blacklistedAddressAssets(address: Address): Set[Asset] = ngState.foldLeft(blockchain.blacklistedAddressAssets(address)) {
+    _ ++ _.bestLiquidDiff.blacklistedAddressAssets.getOrElse(address, Set.empty)
   }
 
   override def leaseBalance(address: Address): LeaseBalance = readLock {

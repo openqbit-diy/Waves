@@ -137,7 +137,7 @@ abstract class Caches(spendableBalanceChanged: Observer[(Address, Asset)]) exten
 
   private val blacklistedAddressAssetsCache: LoadingCache[Address, Set[Asset]] = cache(dbSettings.maxCacheSize * 16, loadBlacklistedAddressAssets)
   protected def discardBlacklistedAddressAssets(key: Address): Unit            = blacklistedAddressAssetsCache.invalidate(key)
-  override def isBlacklisted(address: Address, asset: Asset): Boolean          = blacklistedAddressAssetsCache.get(address).contains(asset)
+  override def blacklistedAddressAssets(address: Address): Set[Asset]          = blacklistedAddressAssetsCache.get(address)
   protected def loadBlacklistedAddressAssets(address: Address): Set[Asset]
 
   private val assetDescriptionCache: LoadingCache[IssuedAsset, Option[AssetDescription]] = cache(dbSettings.maxCacheSize, loadAssetDescription)

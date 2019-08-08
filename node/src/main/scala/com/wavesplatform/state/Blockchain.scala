@@ -100,7 +100,8 @@ trait Blockchain {
 
   def balance(address: Address, mayBeAssetId: Asset = Waves): Long
 
-  def isBlacklisted(address: Address, assetId: Asset): Boolean
+  def blacklistedAddressAssets(address: Address): Set[Asset]
+  def isBlacklisted(address: Address, assetId: Asset): Boolean = blacklistedAddressAssets(address).contains(assetId)
 
   def assetDistribution(asset: IssuedAsset): AssetDistribution
   def assetDistributionAtHeight(asset: IssuedAsset,
