@@ -53,7 +53,7 @@ object MassTransferTransactionDiff {
           completePortfolio,
           scriptsRun = DiffsCommon.countScriptRuns(blockchain, tx),
           scriptsComplexity = DiffsCommon.countScriptsComplexity(blockchain, tx),
-          blacklistedAddressAssets = TrackingAddressAssetsSettings.from(blockchain, height, tx.sender, completePortfolio, s.trackingAddressAssets)
+          blacklistedAddressAssets = TrackingAddressAssetsSettings.newBlacklists(height, tx.sender, completePortfolio, s.trackingAddressAssets, blockchain.isBlacklisted)
         ),
         GenericError(s"Attempt to transfer a nonexistent asset")
       )

@@ -110,6 +110,7 @@ object ExchangeTransactionDiff {
       val amountDiff = getAssetDiff(t.buyOrder.assetPair.amountAsset, buyAmountAssetChange, sellAmountAssetChange)
       val portfolios = Monoid.combineAll(Seq(feeDiff, priceDiff, amountDiff))
 
+      println(s"ExchangeTransactionDiff($tx)")
       Diff(
         height,
         tx,
@@ -120,7 +121,7 @@ object ExchangeTransactionDiff {
         ),
         scriptsRun = scripts,
         scriptsComplexity = scriptsComplexity,
-        blacklistedAddressAssets = TrackingAddressAssetsSettings.from(blockchain, height, tx.sender, portfolios, s.trackingAddressAssets)
+        blacklistedAddressAssets = TrackingAddressAssetsSettings.newBlacklists(height, tx.sender, portfolios, s.trackingAddressAssets, blockchain.isBlacklisted)
       )
     }
   }

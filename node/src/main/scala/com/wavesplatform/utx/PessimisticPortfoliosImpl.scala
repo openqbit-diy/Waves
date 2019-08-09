@@ -9,18 +9,21 @@ import com.wavesplatform.state.{Diff, Portfolio}
 import com.wavesplatform.transaction.Asset
 import monix.reactive.Observer
 
-class PessimisticPortfoliosImpl(spendableBalanceChanged: Observer[(Address, Asset)], shouldBlockTransfer: (Address, Address, Asset) => Boolean) extends PessimisticPortfolios {
+class PessimisticPortfoliosImpl(spendableBalanceChanged: Observer[(Address, Asset)],
+                                blacklistedAddressAssets: Observer[ByteStr],
+                                shouldBlockTransfer: (Address, Address, Asset) => Boolean)
+    extends PessimisticPortfolios {
   private type Portfolios = Map[Address, Portfolio]
   private val transactionPortfolios = new ConcurrentHashMap[ByteStr, Portfolios]()
   private val blacklisted           = new ConcurrentHashMap[ByteStr, Set[(Address, Asset)]]()
   private val transactions          = new ConcurrentHashMap[Address, Set[ByteStr]]()
 
-  override def add(txId: ByteStr, sender: Option[Address], txDiff: Diff): Unit = {
-    val pessimisticPortfolios = txDiff.portfolios.map { case (addr, portfolio) => addr -> portfolio.pessimistic }
+  override def add(txId: ByteStr, sender: Option[Address], txDiff: Diff): Boolean = {
+    val pessimisticPortfolios         = txDiff.portfolios.map { case (addr, portfolio)        => addr -> portfolio.pessimistic }
     val nonEmptyPessimisticPortfolios = pessimisticPortfolios.filterNot { case (_, portfolio) => portfolio.isEmpty }
 
     if (nonEmptyPessimisticPortfolios.nonEmpty &&
-      Option(transactionPortfolios.put(txId, nonEmptyPessimisticPortfolios)).isEmpty) {
+        Option(transactionPortfolios.put(txId, nonEmptyPessimisticPortfolios)).isEmpty) {
       nonEmptyPessimisticPortfolios.keys.foreach { address =>
         transactions.put(address, transactions.getOrDefault(address, Set.empty) + txId)
       }
@@ -39,8 +42,11 @@ class PessimisticPortfoliosImpl(spendableBalanceChanged: Observer[(Address, Asse
           }
       }(collection.breakOut)
 
+      println(s"PessimisticPortfoliosImpl cancel $txId")
       blacklisted.put(txId, blacklistedByTx)
+      blacklistedAddressAssets.onNext(txId)
     }
+    true
   }
 
   override def contains(txId: ByteStr): Boolean = transactionPortfolios.containsKey(txId)

@@ -6,7 +6,7 @@ import com.wavesplatform.state.{Diff, Portfolio}
 import com.wavesplatform.transaction.Asset
 
 trait PessimisticPortfolios {
-  def add(txId: ByteStr, sender: Option[Address], txDiff: Diff): Unit
+  def add(txId: ByteStr, sender: Option[Address], txDiff: Diff): Boolean
   def contains(txId: ByteStr): Boolean
   def isBlacklisted(accountAddr: Address, asset: Asset): Boolean
   def getAggregated(accountAddr: Address): Portfolio

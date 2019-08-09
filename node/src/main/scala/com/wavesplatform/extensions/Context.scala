@@ -2,6 +2,7 @@ package com.wavesplatform.extensions
 
 import akka.actor.ActorSystem
 import com.wavesplatform.account.Address
+import com.wavesplatform.common.state.ByteStr
 import com.wavesplatform.settings.WavesSettings
 import com.wavesplatform.state.Blockchain
 import com.wavesplatform.transaction.{Asset, Transaction}
@@ -18,5 +19,6 @@ trait Context {
   def utx: UtxPool
   def broadcastTx(tx: Transaction): Unit
   def spendableBalanceChanged: Observable[(Address, Asset)]
+  def transactionBlocked: Observable[ByteStr] // by blacklists
   def actorSystem: ActorSystem
 }

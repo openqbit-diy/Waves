@@ -35,6 +35,7 @@ import scala.util.{Left, Right}
 class UtxPoolImpl(time: Time,
                   blockchain: Blockchain,
                   spendableBalanceChanged: Observer[(Address, Asset)],
+                  blacklistedAddressAssets: Observer[ByteStr],
                   utxSettings: UtxSettings,
                   nanoTimeSource: () => Long = () => System.nanoTime(),
                   shouldBlockTransfer: (Address, Address, Asset) => Boolean)
@@ -44,14 +45,14 @@ class UtxPoolImpl(time: Time,
 
   // State
   private[this] val transactions          = new ConcurrentHashMap[ByteStr, Transaction]()
-  private[this] val pessimisticPortfolios = new PessimisticPortfoliosImpl(spendableBalanceChanged, shouldBlockTransfer)
+  private[this] val pessimisticPortfolios = new PessimisticPortfoliosImpl(spendableBalanceChanged, blacklistedAddressAssets, shouldBlockTransfer)
 
-  override def putIfNew(tx: Transaction, verify: Boolean): TracedResult[ValidationError, Boolean] = {
+  override def putIfNew(tx: Transaction, verify: Boolean, add: Boolean = true): TracedResult[ValidationError, Boolean] = {
     if (transactions.containsKey(tx.id())) TracedResult.wrapValue(false)
-    else putNewTx(tx, verify)
+    else putNewTx(tx, verify, add)
   }
 
-  private def putNewTx(tx: Transaction, verify: Boolean): TracedResult[ValidationError, Boolean] = {
+  private def putNewTx(tx: Transaction, verify: Boolean, add: Boolean): TracedResult[ValidationError, Boolean] = {
     PoolMetrics.putRequestStats.increment()
 
     val checks = if (verify) PoolMetrics.putTimeStats.measure {
@@ -137,10 +138,14 @@ class UtxPoolImpl(time: Time,
       } yield ()
     } else Right(())
 
-    val tracedIsNew = TracedResult(checks).flatMap(_ => addTransaction(tx, verify))
+    val tracedIsNew = TracedResult(checks).flatMap { _ =>
+      if (add) addTransaction(tx, verify)
+      else TracedResult.wrapValue(true)
+    }
+
     tracedIsNew.resultE match {
       case Left(err)    => log.debug(s"UTX putIfNew(${tx.id()}) failed with $err")
-      case Right(isNew) => log.trace(s"UTX putIfNew(${tx.id()}) succeeded, isNew = $isNew")
+      case Right(isNew) => log.trace(s"UTX putIfNew(${tx.id()}) succeeded, isNew = $isNew, add = $add")
     }
     tracedIsNew
   }
@@ -160,7 +165,7 @@ class UtxPoolImpl(time: Time,
       .map { diff =>
         val sender = tx match {
           case x: Authorized => Some(x.sender.toAddress)
-          case _ => None
+          case _             => None
         }
         pessimisticPortfolios.add(tx.id(), sender, diff)
         true
@@ -171,7 +176,7 @@ class UtxPoolImpl(time: Time,
       PoolMetrics.addTransaction(tx)
     }
 
-    isNew
+    isNew.resultE.isRight
   }
 
   override def spendableBalance(addr: Address, assetId: Asset): Long =

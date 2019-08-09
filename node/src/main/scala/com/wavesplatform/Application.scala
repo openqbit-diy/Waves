@@ -17,6 +17,7 @@ import com.wavesplatform.api.http._
 import com.wavesplatform.api.http.alias.{AliasApiRoute, AliasBroadcastApiRoute}
 import com.wavesplatform.api.http.assets.{AssetsApiRoute, AssetsBroadcastApiRoute}
 import com.wavesplatform.api.http.leasing.{LeaseApiRoute, LeaseBroadcastApiRoute}
+import com.wavesplatform.common.state.ByteStr
 import com.wavesplatform.consensus.PoSSelector
 import com.wavesplatform.consensus.nxt.api.http.NxtConsensusApiRoute
 import com.wavesplatform.db.openDB
@@ -67,6 +68,8 @@ class Application(val actorSystem: ActorSystem, val settings: WavesSettings, con
 
   private val spendableBalanceChanged = ConcurrentSubject.publish[(Address, Asset)]
 
+  private val transactionBlocked = ConcurrentSubject.publish[ByteStr]
+
   private val blockchainUpdater = StorageFactory(settings, db, time, spendableBalanceChanged)
 
   private lazy val upnp = new UPnP(settings.networkSettings.uPnPSettings) // don't initialize unless enabled
@@ -111,15 +114,22 @@ class Application(val actorSystem: ActorSystem, val settings: WavesSettings, con
     val allChannels            = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE)
 
     def shouldBlockTransfer(sender: Address, receiver: Address, asset: Asset): Boolean =
-      TrackingAddressAssetsSettings.shouldBlock(blockchainUpdater,
-                                                blockchainUpdater.height,
-                                                sender,
-                                                receiver,
-                                                asset,
-                                                settings.blockchainSettings.functionalitySettings.trackingAddressAssets)
+      TrackingAddressAssetsSettings.shouldBlock(
+        blockchainUpdater.isBlacklisted,
+        blockchainUpdater.height,
+        sender,
+        receiver,
+        asset,
+        settings.blockchainSettings.functionalitySettings.trackingAddressAssets
+      )
 
     val utxStorage =
-      new UtxPoolImpl(time, blockchainUpdater, spendableBalanceChanged, settings.utxSettings, shouldBlockTransfer = shouldBlockTransfer)
+      new UtxPoolImpl(time,
+                      blockchainUpdater,
+                      spendableBalanceChanged,
+                      transactionBlocked,
+                      settings.utxSettings,
+                      shouldBlockTransfer = shouldBlockTransfer)
 
     maybeUtx = Some(utxStorage)
 
@@ -225,6 +235,7 @@ class Application(val actorSystem: ActorSystem, val settings: WavesSettings, con
       override def broadcastTx(tx: Transaction): Unit                    = allChannels.broadcastTx(tx, None)
       override def spendableBalanceChanged: Observable[(Address, Asset)] = app.spendableBalanceChanged
       override def actorSystem: ActorSystem                              = app.actorSystem
+      override def transactionBlocked: Observable[ByteStr]               = app.transactionBlocked
     }
 
     extensions = settings.extensions.map { extensionClassName =>
@@ -317,6 +328,7 @@ class Application(val actorSystem: ActorSystem, val settings: WavesSettings, con
       }
 
       spendableBalanceChanged.onComplete()
+      transactionBlocked.onComplete()
       utx.close()
 
       shutdownAndWait(historyRepliesScheduler, "HistoryReplier", 5.minutes)

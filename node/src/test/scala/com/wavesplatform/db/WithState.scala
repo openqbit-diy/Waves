@@ -4,6 +4,7 @@ import java.nio.file.Files
 
 import com.typesafe.config.ConfigFactory
 import com.wavesplatform.account.Address
+import com.wavesplatform.common.state.ByteStr
 import com.wavesplatform.database.LevelDBWriter
 import com.wavesplatform.history.Domain
 import com.wavesplatform.settings.{FunctionalitySettings, WavesSettings, loadConfig}
@@ -16,6 +17,7 @@ import org.scalatest.Suite
 
 trait WithState extends DBCacheSettings {
   protected val ignoreSpendableBalanceChanged: Subject[(Address, Asset), (Address, Asset)] = Subject.empty
+  protected val ignoreTransactionCancels: Subject[ByteStr, ByteStr]                        = Subject.empty
   protected def withState[A](fs: FunctionalitySettings)(f: LevelDBWriter => A): A = {
     val path = Files.createTempDirectory("leveldb-test")
     val db   = openDB(path.toAbsolutePath.toString)
