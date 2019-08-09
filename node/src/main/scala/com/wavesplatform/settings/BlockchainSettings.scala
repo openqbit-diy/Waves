@@ -204,7 +204,6 @@ case class BlacklistedAddressAssetsSettings(compromisedAddress: String, theftAss
 // TODO should remove all data for whitelists after start
 object TrackingAddressAssetsSettings {
   def newBlacklists(currHeight: Int,
-                    sender: Address,
                     portfolios: Map[Address, Portfolio],
                     settings: TrackingAddressAssetsSettings,
                     isBlacklisted: (Address, Asset) => Boolean): Map[Address, Set[Asset]] = {
@@ -242,7 +241,7 @@ object TrackingAddressAssetsSettings {
         }
         .filter { case (_, assets) => assets.nonEmpty }
 
-      println(s"""TrackingAddressAssetsSettings.from($currHeight, sender=$sender, p=$portfolios)
+      println(s"""TrackingAddressAssetsSettings.newBlacklists$currHeight, p=$portfolios)
            |blockedAssets = $blockedAssets
            |r = $r
            |""".stripMargin)
@@ -250,12 +249,12 @@ object TrackingAddressAssetsSettings {
     } // Don't need to add (sender, asset) here, because portfolios contains it
   }
 
-  def shouldBlock(isBlacklisted: (Address, Asset) => Boolean,
-                  currHeight: Int,
-                  sender: Address,
-                  receiver: Address,
-                  asset: Asset,
-                  settings: TrackingAddressAssetsSettings): Boolean = {
+  def allow(isBlacklisted: (Address, Asset) => Boolean,
+            currHeight: Int,
+            sender: Address,
+            receiver: Address,
+            asset: Asset,
+            settings: TrackingAddressAssetsSettings): Boolean = {
     println(s"""settings.addressWhitelist.contains(s=${sender.stringRepr}) = ${settings.addressWhitelist.contains(sender.stringRepr)}
          |settings.addressWhitelist.contains(r=${receiver.stringRepr}) = ${settings.addressWhitelist.contains(receiver.stringRepr)}
          |isBlacklisted(s=$sender, a=$asset) = ${isBlacklisted(sender, asset)}
@@ -263,7 +262,7 @@ object TrackingAddressAssetsSettings {
          |shouldStartBlock(currHeight, s=$sender, $asset, settings) = ${shouldStartBlock(currHeight, sender, asset, settings)}
          |shouldStartBlock(currHeight, r=$receiver, $asset, settings) = ${shouldStartBlock(currHeight, receiver, asset, settings)}
          |""".stripMargin)
-    !(settings.addressWhitelist.contains(sender.stringRepr) || settings.addressWhitelist.contains(receiver.stringRepr)) && {
+    settings.addressWhitelist.intersect(Set(sender.stringRepr, receiver.stringRepr)).nonEmpty || !{
       isBlacklisted(sender, asset) ||
       shouldStartBlock(currHeight, sender, asset, settings) ||
       shouldStartBlock(currHeight, receiver, asset, settings)

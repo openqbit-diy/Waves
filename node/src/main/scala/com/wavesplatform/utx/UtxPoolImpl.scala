@@ -38,14 +38,14 @@ class UtxPoolImpl(time: Time,
                   blacklistedAddressAssets: Observer[ByteStr],
                   utxSettings: UtxSettings,
                   nanoTimeSource: () => Long = () => System.nanoTime(),
-                  shouldBlockTransfer: (Address, Address, Asset) => Boolean)
+                  newBlacklists: Map[Address, Portfolio] => Map[Address, Set[Asset]])
     extends ScorexLogging
     with AutoCloseable
     with UtxPool {
 
   // State
   private[this] val transactions          = new ConcurrentHashMap[ByteStr, Transaction]()
-  private[this] val pessimisticPortfolios = new PessimisticPortfoliosImpl(spendableBalanceChanged, blacklistedAddressAssets, shouldBlockTransfer)
+  private[this] val pessimisticPortfolios = new PessimisticPortfoliosImpl(spendableBalanceChanged, blacklistedAddressAssets, newBlacklists)
 
   override def putIfNew(tx: Transaction, verify: Boolean, add: Boolean = true): TracedResult[ValidationError, Boolean] = {
     if (transactions.containsKey(tx.id())) TracedResult.wrapValue(false)

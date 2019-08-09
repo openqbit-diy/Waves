@@ -11,7 +11,7 @@ import monix.reactive.Observer
 
 class PessimisticPortfoliosImpl(spendableBalanceChanged: Observer[(Address, Asset)],
                                 blacklistedAddressAssets: Observer[ByteStr],
-                                shouldBlockTransfer: (Address, Address, Asset) => Boolean)
+                                newBlacklists: Map[Address, Portfolio] => Map[Address, Set[Asset]])
     extends PessimisticPortfolios {
   private type Portfolios = Map[Address, Portfolio]
   private val transactionPortfolios = new ConcurrentHashMap[ByteStr, Portfolios]()
@@ -19,6 +19,7 @@ class PessimisticPortfoliosImpl(spendableBalanceChanged: Observer[(Address, Asse
   private val transactions          = new ConcurrentHashMap[Address, Set[ByteStr]]()
 
   override def add(txId: ByteStr, sender: Option[Address], txDiff: Diff): Boolean = {
+    println(s"PessimisticPortfoliosImpl.add($txId, $sender, $txDiff)")
     val pessimisticPortfolios         = txDiff.portfolios.map { case (addr, portfolio)        => addr -> portfolio.pessimistic }
     val nonEmptyPessimisticPortfolios = pessimisticPortfolios.filterNot { case (_, portfolio) => portfolio.isEmpty }
 
@@ -34,18 +35,18 @@ class PessimisticPortfoliosImpl(spendableBalanceChanged: Observer[(Address, Asse
       case (addr, p) => p.assetIds.foreach(assetId => spendableBalanceChanged.onNext(addr -> assetId))
     }
 
-    sender.foreach { s =>
-      val blacklistedByTx: Set[(Address, Asset)] = txDiff.portfolios.flatMap {
-        case (addr, p) =>
-          p.assets.keySet.collect {
-            case asset if shouldBlockTransfer(s, addr, asset) => (addr, asset: Asset)
-          }
-      }(collection.breakOut)
+    val blacklists = newBlacklists(txDiff.portfolios)
+    println(s"PessimisticPortfoliosImpl.newBlacklists = $blacklists")
+    if (blacklists.nonEmpty) {
+      val xs: Map[Address, Asset] = for {
+        (addr, assets) <- blacklists
+        asset          <- assets
+      } yield addr -> asset
 
-      println(s"PessimisticPortfoliosImpl cancel $txId")
-      blacklisted.put(txId, blacklistedByTx)
+      blacklisted.put(txId, xs.toSet)
       blacklistedAddressAssets.onNext(txId)
     }
+
     true
   }
 

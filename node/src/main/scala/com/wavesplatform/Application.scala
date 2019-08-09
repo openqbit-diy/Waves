@@ -113,23 +113,20 @@ class Application(val actorSystem: ActorSystem, val settings: WavesSettings, con
     val establishedConnections = new ConcurrentHashMap[Channel, PeerInfo]
     val allChannels            = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE)
 
-    def shouldBlockTransfer(sender: Address, receiver: Address, asset: Asset): Boolean =
-      TrackingAddressAssetsSettings.shouldBlock(
-        blockchainUpdater.isBlacklisted,
-        blockchainUpdater.height,
-        sender,
-        receiver,
-        asset,
-        settings.blockchainSettings.functionalitySettings.trackingAddressAssets
-      )
-
     val utxStorage =
-      new UtxPoolImpl(time,
-                      blockchainUpdater,
-                      spendableBalanceChanged,
-                      transactionBlocked,
-                      settings.utxSettings,
-                      shouldBlockTransfer = shouldBlockTransfer)
+      new UtxPoolImpl(
+        time,
+        blockchainUpdater,
+        spendableBalanceChanged,
+        transactionBlocked,
+        settings.utxSettings,
+        newBlacklists = TrackingAddressAssetsSettings.newBlacklists(
+          blockchainUpdater.height,
+          _,
+          settings.blockchainSettings.functionalitySettings.trackingAddressAssets,
+          blockchainUpdater.isBlacklisted
+        )
+      )
 
     maybeUtx = Some(utxStorage)
 
