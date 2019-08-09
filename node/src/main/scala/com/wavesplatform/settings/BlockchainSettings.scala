@@ -263,7 +263,7 @@ object TrackingAddressAssetsSettings {
          |shouldStartBlock(currHeight, s=$sender, $asset, settings) = ${shouldStartBlock(currHeight, sender, asset, settings)}
          |shouldStartBlock(currHeight, r=$receiver, $asset, settings) = ${shouldStartBlock(currHeight, receiver, asset, settings)}
          |""".stripMargin)
-    !(settings.addressWhitelist.contains(sender.stringRepr) || settings.addressWhitelist.contains(receiver.stringRepr)) && {
+    settings.addressWhitelist.intersect(Set(sender.stringRepr, receiver.stringRepr)).isEmpty && {
       isBlacklisted(sender, asset) ||
       shouldStartBlock(currHeight, sender, asset, settings) ||
       shouldStartBlock(currHeight, receiver, asset, settings)

@@ -42,9 +42,11 @@ class PessimisticPortfoliosImpl(spendableBalanceChanged: Observer[(Address, Asse
           }
       }(collection.breakOut)
 
-      println(s"PessimisticPortfoliosImpl cancel $txId")
-      blacklisted.put(txId, blacklistedByTx)
-      blacklistedAddressAssets.onNext(txId)
+      if (blacklistedByTx.nonEmpty) {
+        println(s"PessimisticPortfoliosImpl cancel $txId: $blacklistedByTx")
+        blacklisted.put(txId, blacklistedByTx)
+        blacklistedAddressAssets.onNext(txId)
+      }
     }
     true
   }
