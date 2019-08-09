@@ -26,4 +26,6 @@ trait UtxPool extends AutoCloseable {
   def transactionById(transactionId: ByteStr): Option[Transaction]
 
   def packUnconfirmed(rest: MultiDimensionalMiningConstraint, maxPackTime: Duration): (Seq[Transaction], MultiDimensionalMiningConstraint)
+
+  def isBlacklisted(accountAddr: Address, asset: Asset): Boolean
 }

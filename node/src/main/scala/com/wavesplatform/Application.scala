@@ -28,7 +28,7 @@ import com.wavesplatform.metrics.Metrics
 import com.wavesplatform.mining.{Miner, MinerImpl}
 import com.wavesplatform.network.RxExtensionLoader.RxExtensionLoaderShutdownHook
 import com.wavesplatform.network._
-import com.wavesplatform.settings.WavesSettings
+import com.wavesplatform.settings.{TrackingAddressAssetsSettings, WavesSettings}
 import com.wavesplatform.state.Blockchain
 import com.wavesplatform.state.appender.{BlockAppender, ExtensionAppender, MicroblockAppender}
 import com.wavesplatform.transaction.{Asset, Transaction}
@@ -109,7 +109,18 @@ class Application(val actorSystem: ActorSystem, val settings: WavesSettings, con
 
     val establishedConnections = new ConcurrentHashMap[Channel, PeerInfo]
     val allChannels            = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE)
-    val utxStorage             = new UtxPoolImpl(time, blockchainUpdater, spendableBalanceChanged, settings.utxSettings)
+
+    def shouldBlockTransfer(sender: Address, receiver: Address, asset: Asset): Boolean =
+      TrackingAddressAssetsSettings.shouldBlock(blockchainUpdater,
+                                                blockchainUpdater.height,
+                                                sender,
+                                                receiver,
+                                                asset,
+                                                settings.blockchainSettings.functionalitySettings.trackingAddressAssets)
+
+    val utxStorage =
+      new UtxPoolImpl(time, blockchainUpdater, spendableBalanceChanged, settings.utxSettings, shouldBlockTransfer = shouldBlockTransfer)
+
     maybeUtx = Some(utxStorage)
 
     val knownInvalidBlocks = new InvalidBlockStorageImpl(settings.synchronizationSettings.invalidBlocksStorage)

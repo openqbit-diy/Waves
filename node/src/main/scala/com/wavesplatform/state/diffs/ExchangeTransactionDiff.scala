@@ -85,7 +85,7 @@ object ExchangeTransactionDiff {
       def getAssetDiff(asset: Asset, buyAssetChange: Long, sellAssetChange: Long): Map[Address, Portfolio] = {
         Monoid.combine(
           Map(buyer  → getAssetPortfolio(asset, buyAssetChange)),
-          Map(seller → getAssetPortfolio(asset, sellAssetChange)),
+          Map(seller → getAssetPortfolio(asset, sellAssetChange))
         )
       }
 
@@ -94,7 +94,7 @@ object ExchangeTransactionDiff {
           Seq(
             getOrderFeePortfolio(t.buyOrder, t.buyMatcherFee),
             getOrderFeePortfolio(t.sellOrder, t.sellMatcherFee),
-            wavesPortfolio(-t.fee),
+            wavesPortfolio(-t.fee)
           )
         )
 

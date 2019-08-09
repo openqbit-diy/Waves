@@ -36,16 +36,15 @@ class UtxPoolImpl(time: Time,
                   blockchain: Blockchain,
                   spendableBalanceChanged: Observer[(Address, Asset)],
                   utxSettings: UtxSettings,
-                  nanoTimeSource: () => Long = () => System.nanoTime())
+                  nanoTimeSource: () => Long = () => System.nanoTime(),
+                  shouldBlockTransfer: (Address, Address, Asset) => Boolean)
     extends ScorexLogging
     with AutoCloseable
     with UtxPool {
 
-  import com.wavesplatform.utx.UtxPoolImpl._
-
   // State
   private[this] val transactions          = new ConcurrentHashMap[ByteStr, Transaction]()
-  private[this] val pessimisticPortfolios = new PessimisticPortfolios(spendableBalanceChanged)
+  private[this] val pessimisticPortfolios = new PessimisticPortfoliosImpl(spendableBalanceChanged, shouldBlockTransfer)
 
   override def putIfNew(tx: Transaction, verify: Boolean): TracedResult[ValidationError, Boolean] = {
     if (transactions.containsKey(tx.id())) TracedResult.wrapValue(false)
@@ -159,7 +158,12 @@ class UtxPoolImpl(time: Time,
   private[this] def addTransaction(tx: Transaction, verify: Boolean): TracedResult[ValidationError, Boolean] = {
     val isNew = TransactionDiffer(blockchain.lastBlockTimestamp, time.correctedTime(), blockchain.height, verify)(blockchain, tx)
       .map { diff =>
-        pessimisticPortfolios.add(tx.id(), diff); true
+        val sender = tx match {
+          case x: Authorized => Some(x.sender.toAddress)
+          case _ => None
+        }
+        pessimisticPortfolios.add(tx.id(), sender, diff)
+        true
       }
 
     if (!verify || isNew.resultE.isRight) {
@@ -261,6 +265,8 @@ class UtxPoolImpl(time: Time,
     packUnconfirmed(MultiDimensionalMiningConstraint.unlimited, ScalaDuration.Inf)
   }
 
+  def isBlacklisted(accountAddr: Address, asset: Asset): Boolean = pessimisticPortfolios.isBlacklisted(accountAddr, asset)
+
   override def close(): Unit = {
     scheduler.shutdown()
   }
@@ -288,56 +294,4 @@ class UtxPoolImpl(time: Time,
       bytesStats.decrement(tx.bytes().length)
     }
   }
-
-}
-
-object UtxPoolImpl {
-
-  private class PessimisticPortfolios(spendableBalanceChanged: Observer[(Address, Asset)]) {
-    private type Portfolios = Map[Address, Portfolio]
-    private val transactionPortfolios = new ConcurrentHashMap[ByteStr, Portfolios]()
-    private val transactions          = new ConcurrentHashMap[Address, Set[ByteStr]]()
-
-    def add(txId: ByteStr, txDiff: Diff): Unit = {
-      val pessimisticPortfolios         = txDiff.portfolios.map { case (addr, portfolio)        => addr -> portfolio.pessimistic }
-      val nonEmptyPessimisticPortfolios = pessimisticPortfolios.filterNot { case (_, portfolio) => portfolio.isEmpty }
-
-      if (nonEmptyPessimisticPortfolios.nonEmpty &&
-          Option(transactionPortfolios.put(txId, nonEmptyPessimisticPortfolios)).isEmpty) {
-        nonEmptyPessimisticPortfolios.keys.foreach { address =>
-          transactions.put(address, transactions.getOrDefault(address, Set.empty) + txId)
-        }
-      }
-
-      // Because we need to notify about balance changes when they are applied
-      pessimisticPortfolios.foreach {
-        case (addr, p) => p.assetIds.foreach(assetId => spendableBalanceChanged.onNext(addr -> assetId))
-      }
-    }
-
-    def contains(txId: ByteStr): Boolean = transactionPortfolios.containsKey(txId)
-
-    def getAggregated(accountAddr: Address): Portfolio = {
-      val portfolios = for {
-        txId <- transactions.getOrDefault(accountAddr, Set.empty).toSeq
-        txPortfolios = transactionPortfolios.getOrDefault(txId, Map.empty[Address, Portfolio])
-        txAccountPortfolio <- txPortfolios.get(accountAddr).toSeq
-      } yield txAccountPortfolio
-
-      Monoid.combineAll[Portfolio](portfolios)
-    }
-
-    def remove(txId: ByteStr): Unit = {
-      Option(transactionPortfolios.remove(txId)) match {
-        case Some(txPortfolios) =>
-          txPortfolios.foreach {
-            case (addr, p) =>
-              transactions.computeIfPresent(addr, (_, prevTxs) => prevTxs - txId)
-              p.assetIds.foreach(assetId => spendableBalanceChanged.onNext(addr -> assetId))
-          }
-        case None =>
-      }
-    }
-  }
-
 }
