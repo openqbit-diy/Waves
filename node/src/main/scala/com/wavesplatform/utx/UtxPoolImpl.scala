@@ -138,14 +138,10 @@ class UtxPoolImpl(time: Time,
       } yield ()
     } else Right(())
 
-    val tracedIsNew = TracedResult(checks).flatMap { _ =>
-      if (add) addTransaction(tx, verify)
-      else TracedResult.wrapValue(true)
-    }
-
+    val tracedIsNew = TracedResult(checks).flatMap(_ => addTransaction(tx, verify))
     tracedIsNew.resultE match {
       case Left(err)    => log.debug(s"UTX putIfNew(${tx.id()}) failed with $err")
-      case Right(isNew) => log.trace(s"UTX putIfNew(${tx.id()}) succeeded, isNew = $isNew, add = $add")
+      case Right(isNew) => log.trace(s"UTX putIfNew(${tx.id()}) succeeded, isNew = $isNew")
     }
     tracedIsNew
   }
@@ -176,7 +172,7 @@ class UtxPoolImpl(time: Time,
       PoolMetrics.addTransaction(tx)
     }
 
-    isNew.resultE.isRight
+    isNew
   }
 
   override def spendableBalance(addr: Address, assetId: Asset): Long =
