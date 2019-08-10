@@ -19,9 +19,6 @@ class PessimisticPortfoliosImpl(spendableBalanceChanged: Observer[(Address, Asse
   private type Portfolios = Map[Address, Portfolio]
   private val transactionPortfolios = new ConcurrentHashMap[ByteStr, Portfolios]()
 
-  // cache with time?
-//  private val blacklisted           = new ConcurrentHashMap[ByteStr, Set[(Address, Asset)]]()
-
   import scala.concurrent.duration.DurationInt
   private val expiration = 1.minute
   private val blacklisted = CacheBuilder
@@ -29,7 +26,6 @@ class PessimisticPortfoliosImpl(spendableBalanceChanged: Observer[(Address, Asse
     .expireAfterWrite(expiration.length, expiration.unit)
     .build[ByteStr, Set[(Address, Asset)]]()
 
-  // allTransactions?
   private val blacklistedTransactions = CacheBuilder
     .newBuilder()
     .expireAfterWrite(expiration.length, expiration.unit)
@@ -56,8 +52,7 @@ class PessimisticPortfoliosImpl(spendableBalanceChanged: Observer[(Address, Asse
     val blacklists = getBlacklists(txDiff.portfolios)
     if (blacklists.isEmpty) log.debug(s"No blacklists for $txId")
     else {
-      // not an ID, but (address, asset), because if there is a bad transfer, we should cancel ExchangeTransaction
-      // also we can't rely on tx's id for same reasons
+      // Not an ID but (address, asset), because if there is a bad TransferTransaction, we should cancel ExchangeTransaction
       val setBuilder = Set.newBuilder[(Address, Asset)]
       for {
         (address, assets) <- blacklists
@@ -71,7 +66,7 @@ class PessimisticPortfoliosImpl(spendableBalanceChanged: Observer[(Address, Asse
       }
 
       val r = setBuilder.result()
-      log.debug(s"blacklists for $txId:\n${r.map(_.toString()).mkString("\n")}")
+      log.debug(s"Blacklists for $txId:\n${r.map(_.toString()).mkString("\n")}")
       blacklisted.put(txId, r)
     }
 
@@ -104,9 +99,7 @@ class PessimisticPortfoliosImpl(spendableBalanceChanged: Observer[(Address, Asse
     Monoid.combineAll[Portfolio](portfolios)
   }
 
-  override def remove(txId: ByteStr): Unit = {
-//    log.debug(s"Removing blacklists for $txId")
-//    blacklisted.remove(txId)
+  override def remove(txId: ByteStr): Unit =
     Option(transactionPortfolios.remove(txId)) match {
       case Some(txPortfolios) =>
         txPortfolios.foreach {
@@ -116,5 +109,4 @@ class PessimisticPortfoliosImpl(spendableBalanceChanged: Observer[(Address, Asse
         }
       case None =>
     }
-  }
 }
