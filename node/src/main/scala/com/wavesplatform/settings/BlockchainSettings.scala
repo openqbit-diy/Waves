@@ -254,10 +254,6 @@ object TrackingAddressAssetsSettings {
       }
       .filter { case (_, assets) => assets.nonEmpty }
 
-    println(s"""TrackingAddressAssetsSettings.from($currHeight, p=$portfolios)
-               |blockedSenderAssets = $blockedSenderAssets
-               |r = $r
-               |""".stripMargin)
     r
   }
 

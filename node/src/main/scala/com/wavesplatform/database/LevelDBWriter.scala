@@ -504,7 +504,7 @@ class LevelDBWriter(writableDB: DB, spendableBalanceChanged: Observer[(Address, 
 
             rw.delete(Keys.blacklistedAddressAssets(addressId)(currentHeight))
             rw.filterHistory(Keys.blacklistedAddressAssetsHistory(addressId), currentHeight)
-            blacklistedAddressAssetsToInvalidate += address // ?
+            blacklistedAddressAssetsToInvalidate += address
 
             for (k <- rw.get(Keys.changedDataKeys(currentHeight, addressId))) {
               log.trace(s"Discarding $k for $address at $currentHeight")

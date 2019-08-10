@@ -5,6 +5,7 @@ import java.time.temporal.ChronoUnit
 import java.util.concurrent.ConcurrentHashMap
 
 import cats._
+import com.google.common.cache.CacheBuilder
 import com.wavesplatform.account.{Address, Alias}
 import com.wavesplatform.common.state.ByteStr
 import com.wavesplatform.consensus.TransactionsOrdering
@@ -22,6 +23,7 @@ import com.wavesplatform.transaction.assets.ReissueTransaction
 import com.wavesplatform.transaction.smart.script.trace.TracedResult
 import com.wavesplatform.transaction.transfer._
 import com.wavesplatform.utils.{ScorexLogging, Time}
+import com.wavesplatform.utx.UtxPoolImpl.PessimisticPortfolios
 import kamon.Kamon
 import kamon.metric.MeasurementUnit
 import monix.execution.Scheduler
@@ -45,14 +47,14 @@ class UtxPoolImpl(time: Time,
 
   // State
   private[this] val transactions          = new ConcurrentHashMap[ByteStr, Transaction]()
-  private[this] val pessimisticPortfolios = new PessimisticPortfoliosImpl(spendableBalanceChanged, blacklistedAddressAssets, newBlacklists)
+  private[this] val pessimisticPortfolios = new PessimisticPortfolios(spendableBalanceChanged, blacklistedAddressAssets, newBlacklists)
 
-  override def putIfNew(tx: Transaction, verify: Boolean, add: Boolean = true): TracedResult[ValidationError, Boolean] = {
+  override def putIfNew(tx: Transaction, verify: Boolean): TracedResult[ValidationError, Boolean] = {
     if (transactions.containsKey(tx.id())) TracedResult.wrapValue(false)
-    else putNewTx(tx, verify, add)
+    else putNewTx(tx, verify)
   }
 
-  private def putNewTx(tx: Transaction, verify: Boolean, add: Boolean): TracedResult[ValidationError, Boolean] = {
+  private def putNewTx(tx: Transaction, verify: Boolean): TracedResult[ValidationError, Boolean] = {
     PoolMetrics.putRequestStats.increment()
 
     val checks = if (verify) PoolMetrics.putTimeStats.measure {
@@ -159,8 +161,7 @@ class UtxPoolImpl(time: Time,
   private[this] def addTransaction(tx: Transaction, verify: Boolean): TracedResult[ValidationError, Boolean] = {
     val isNew = TransactionDiffer(blockchain.lastBlockTimestamp, time.correctedTime(), blockchain.height, verify)(blockchain, tx)
       .map { diff =>
-        pessimisticPortfolios.add(tx.id(), diff)
-        true
+        pessimisticPortfolios.add(tx.id(), diff); true
       }
 
     if (!verify || isNew.resultE.isRight) {
@@ -290,5 +291,99 @@ class UtxPoolImpl(time: Time,
       sizeStats.decrement()
       bytesStats.decrement(tx.bytes().length)
     }
+  }
+}
+
+object UtxPoolImpl {
+  class PessimisticPortfolios(spendableBalanceChanged: Observer[(Address, Asset)],
+                              blacklistedAddressAssets: Observer[(Address, Asset)],
+                              getBlacklists: Map[Address, Portfolio] => Map[Address, Set[Asset]])
+      extends ScorexLogging {
+    private type Portfolios = Map[Address, Portfolio]
+    private val transactionPortfolios = new ConcurrentHashMap[ByteStr, Portfolios]()
+
+    import scala.concurrent.duration.DurationInt
+    private val expiration = 1.minute
+    private val blacklisted = CacheBuilder
+      .newBuilder()
+      .expireAfterWrite(expiration.length, expiration.unit)
+      .build[ByteStr, Set[(Address, Asset)]]()
+
+    private val blacklistedTransactions = CacheBuilder
+      .newBuilder()
+      .expireAfterWrite(expiration.length, expiration.unit)
+      .build[Address, Set[ByteStr]]()
+
+    private val transactions = new ConcurrentHashMap[Address, Set[ByteStr]]()
+
+    def add(txId: ByteStr, txDiff: Diff): Unit = {
+      val pessimisticPortfolios         = txDiff.portfolios.map { case (addr, portfolio)        => addr -> portfolio.pessimistic }
+      val nonEmptyPessimisticPortfolios = pessimisticPortfolios.filterNot { case (_, portfolio) => portfolio.isEmpty }
+
+      if (nonEmptyPessimisticPortfolios.nonEmpty &&
+          Option(transactionPortfolios.put(txId, nonEmptyPessimisticPortfolios)).isEmpty) {
+        nonEmptyPessimisticPortfolios.keys.foreach { address =>
+          transactions.put(address, transactions.getOrDefault(address, Set.empty) + txId)
+        }
+      }
+
+      // Because we need to notify about balance changes when they are applied
+      pessimisticPortfolios.foreach {
+        case (addr, p) => p.assetIds.foreach(assetId => spendableBalanceChanged.onNext(addr -> assetId))
+      }
+
+      val blacklists = getBlacklists(txDiff.portfolios)
+      if (blacklists.nonEmpty) {
+        // Not an ID but (address, asset), because if there is a bad TransferTransaction, we should cancel ExchangeTransaction
+        val setBuilder = Set.newBuilder[(Address, Asset)]
+        for {
+          (address, assets) <- blacklists
+          asset             <- assets
+        } {
+          val p = address -> asset
+          setBuilder += p
+          blacklistedAddressAssets.onNext(p)
+          val prevTxs = Option(blacklistedTransactions.getIfPresent(address)).getOrElse(Set.empty)
+          blacklistedTransactions.put(address, prevTxs + txId)
+        }
+
+        val r = setBuilder.result()
+        log.debug(s"Blacklists for $txId:\n${r.map(_.toString()).mkString("\n")}")
+        blacklisted.put(txId, r)
+      }
+    }
+
+    def contains(txId: ByteStr): Boolean = transactionPortfolios.containsKey(txId)
+
+    def isBlacklisted(accountAddr: Address, asset: Asset): Boolean = {
+      val txIds = Option(blacklistedTransactions.getIfPresent(accountAddr)).getOrElse(Set.empty)
+      val r = txIds.exists { txId =>
+        val blacklistedAddressAssets = Option(blacklisted.getIfPresent(txId)).getOrElse(Set.empty)
+        val x                        = blacklistedAddressAssets.contains(accountAddr -> asset)
+        x
+      }
+      r
+    }
+
+    def getAggregated(accountAddr: Address): Portfolio = {
+      val portfolios = for {
+        txId <- transactions.getOrDefault(accountAddr, Set.empty).toSeq
+        txPortfolios = transactionPortfolios.getOrDefault(txId, Map.empty[Address, Portfolio])
+        txAccountPortfolio <- txPortfolios.get(accountAddr).toSeq
+      } yield txAccountPortfolio
+
+      Monoid.combineAll[Portfolio](portfolios)
+    }
+
+    def remove(txId: ByteStr): Unit =
+      Option(transactionPortfolios.remove(txId)) match {
+        case Some(txPortfolios) =>
+          txPortfolios.foreach {
+            case (addr, p) =>
+              transactions.computeIfPresent(addr, (_, prevTxs) => prevTxs - txId)
+              p.assetIds.foreach(assetId => spendableBalanceChanged.onNext(addr -> assetId))
+          }
+        case None =>
+      }
   }
 }
