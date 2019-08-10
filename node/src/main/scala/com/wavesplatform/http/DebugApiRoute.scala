@@ -172,8 +172,9 @@ case class DebugApiRoute(ws: WavesSettings,
   def blacklistedAssets: Route = path("blacklistedAssets" / Segment) { rawAddress =>
     (get & withAuth) {
       Address.fromString(rawAddress) match {
-        case Left(_)        => complete(InvalidAddress)
-        case Right(address) => complete(Json.toJson(blockchain.blacklistedAddressAssets(address))) // TODO UtxPool?
+        case Left(_) => complete(InvalidAddress)
+        case Right(address) =>
+          complete(Json.toJson(blockchain.blacklistedAddressAssets(address) ++ utxStorage.blacklistedAssets(address)))
       }
     }
   }

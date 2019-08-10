@@ -263,7 +263,8 @@ class UtxPoolImpl(time: Time,
     packUnconfirmed(MultiDimensionalMiningConstraint.unlimited, ScalaDuration.Inf)
   }
 
-  def isBlacklisted(accountAddr: Address, asset: Asset): Boolean = pessimisticPortfolios.isBlacklisted(accountAddr, asset)
+  def isBlacklisted(address: Address, asset: Asset): Boolean = pessimisticPortfolios.isBlacklisted(address, asset)
+  def blacklistedAssets(address: Address): Set[Asset]        = pessimisticPortfolios.blacklistedAssets(address)
 
   override def close(): Unit = {
     scheduler.shutdown()
@@ -355,15 +356,22 @@ object UtxPoolImpl {
 
     def contains(txId: ByteStr): Boolean = transactionPortfolios.containsKey(txId)
 
-    def isBlacklisted(accountAddr: Address, asset: Asset): Boolean = {
-      val txIds = Option(blacklistedTransactions.getIfPresent(accountAddr)).getOrElse(Set.empty)
+    def isBlacklisted(address: Address, asset: Asset): Boolean = {
+      val txIds = Option(blacklistedTransactions.getIfPresent(address)).getOrElse(Set.empty)
       val r = txIds.exists { txId =>
         val blacklistedAddressAssets = Option(blacklisted.getIfPresent(txId)).getOrElse(Set.empty)
-        val x                        = blacklistedAddressAssets.contains(accountAddr -> asset)
+        val x                        = blacklistedAddressAssets.contains(address -> asset)
         x
       }
       r
     }
+
+    def blacklistedAssets(theAddress: Address): Set[Asset] =
+      for {
+        txId             <- Option(blacklistedTransactions.getIfPresent(theAddress)).getOrElse(Set.empty)
+        (address, asset) <- Option(blacklisted.getIfPresent(txId)).getOrElse(Set.empty)
+        if address == theAddress
+      } yield asset
 
     def getAggregated(accountAddr: Address): Portfolio = {
       val portfolios = for {
