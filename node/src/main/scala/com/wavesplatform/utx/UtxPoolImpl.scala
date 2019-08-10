@@ -35,7 +35,7 @@ import scala.util.{Left, Right}
 class UtxPoolImpl(time: Time,
                   blockchain: Blockchain,
                   spendableBalanceChanged: Observer[(Address, Asset)],
-                  blacklistedAddressAssets: Observer[ByteStr],
+                  blacklistedAddressAssets: Observer[(Address, Asset)],
                   utxSettings: UtxSettings,
                   nanoTimeSource: () => Long = () => System.nanoTime(),
                   newBlacklists: Map[Address, Portfolio] => Map[Address, Set[Asset]])
@@ -159,11 +159,7 @@ class UtxPoolImpl(time: Time,
   private[this] def addTransaction(tx: Transaction, verify: Boolean): TracedResult[ValidationError, Boolean] = {
     val isNew = TransactionDiffer(blockchain.lastBlockTimestamp, time.correctedTime(), blockchain.height, verify)(blockchain, tx)
       .map { diff =>
-        val sender = tx match {
-          case x: Authorized => Some(x.sender.toAddress)
-          case _             => None
-        }
-        pessimisticPortfolios.add(tx.id(), sender, diff)
+        pessimisticPortfolios.add(tx.id(), diff)
         true
       }
 

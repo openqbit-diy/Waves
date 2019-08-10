@@ -121,7 +121,7 @@ object ExchangeTransactionDiff {
         ),
         scriptsRun = scripts,
         scriptsComplexity = scriptsComplexity,
-        blacklistedAddressAssets = TrackingAddressAssetsSettings.newBlacklists(height, portfolios, s.trackingAddressAssets, blockchain.isBlacklisted)
+        blacklistedAddressAssets = TrackingAddressAssetsSettings.lookForBlacklists(height, portfolios, s.trackingAddressAssets, blockchain.isBlacklisted)
       )
     }
   }

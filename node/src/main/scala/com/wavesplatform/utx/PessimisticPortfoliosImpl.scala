@@ -3,23 +3,41 @@ package com.wavesplatform.utx
 import java.util.concurrent.ConcurrentHashMap
 
 import cats.Monoid
+import com.google.common.cache.CacheBuilder
 import com.wavesplatform.account.Address
 import com.wavesplatform.common.state.ByteStr
 import com.wavesplatform.state.{Diff, Portfolio}
 import com.wavesplatform.transaction.Asset
+import com.wavesplatform.utils.ScorexLogging
 import monix.reactive.Observer
 
 class PessimisticPortfoliosImpl(spendableBalanceChanged: Observer[(Address, Asset)],
-                                blacklistedAddressAssets: Observer[ByteStr],
-                                newBlacklists: Map[Address, Portfolio] => Map[Address, Set[Asset]])
-    extends PessimisticPortfolios {
+                                blacklistedAddressAssets: Observer[(Address, Asset)],
+                                getBlacklists: Map[Address, Portfolio] => Map[Address, Set[Asset]])
+    extends PessimisticPortfolios
+    with ScorexLogging {
   private type Portfolios = Map[Address, Portfolio]
   private val transactionPortfolios = new ConcurrentHashMap[ByteStr, Portfolios]()
-  private val blacklisted           = new ConcurrentHashMap[ByteStr, Set[(Address, Asset)]]()
-  private val transactions          = new ConcurrentHashMap[Address, Set[ByteStr]]()
 
-  override def add(txId: ByteStr, sender: Option[Address], txDiff: Diff): Boolean = {
-    println(s"PessimisticPortfoliosImpl.add($txId, $sender, $txDiff)")
+  // cache with time?
+//  private val blacklisted           = new ConcurrentHashMap[ByteStr, Set[(Address, Asset)]]()
+
+  import scala.concurrent.duration.DurationInt
+  private val expiration = 1.minute
+  private val blacklisted = CacheBuilder
+    .newBuilder()
+    .expireAfterWrite(expiration.length, expiration.unit)
+    .build[ByteStr, Set[(Address, Asset)]]()
+
+  // allTransactions?
+  private val blacklistedTransactions = CacheBuilder
+    .newBuilder()
+    .expireAfterWrite(expiration.length, expiration.unit)
+    .build[Address, Set[ByteStr]]()
+
+  private val transactions = new ConcurrentHashMap[Address, Set[ByteStr]]()
+
+  override def add(txId: ByteStr, txDiff: Diff): Boolean = {
     val pessimisticPortfolios         = txDiff.portfolios.map { case (addr, portfolio)        => addr -> portfolio.pessimistic }
     val nonEmptyPessimisticPortfolios = pessimisticPortfolios.filterNot { case (_, portfolio) => portfolio.isEmpty }
 
@@ -35,16 +53,26 @@ class PessimisticPortfoliosImpl(spendableBalanceChanged: Observer[(Address, Asse
       case (addr, p) => p.assetIds.foreach(assetId => spendableBalanceChanged.onNext(addr -> assetId))
     }
 
-    val blacklists = newBlacklists(txDiff.portfolios)
-    println(s"PessimisticPortfoliosImpl.newBlacklists = $blacklists")
-    if (blacklists.nonEmpty) {
-      val xs: Map[Address, Asset] = for {
-        (addr, assets) <- blacklists
-        asset          <- assets
-      } yield addr -> asset
+    val blacklists = getBlacklists(txDiff.portfolios)
+    if (blacklists.isEmpty) log.debug(s"No blacklists for $txId")
+    else {
+      // not an ID, but (address, asset), because if there is a bad transfer, we should cancel ExchangeTransaction
+      // also we can't rely on tx's id for same reasons
+      val setBuilder = Set.newBuilder[(Address, Asset)]
+      for {
+        (address, assets) <- blacklists
+        asset             <- assets
+      } {
+        val p = address -> asset
+        setBuilder += p
+        blacklistedAddressAssets.onNext(p)
+        val prevTxs = Option(blacklistedTransactions.getIfPresent(address)).getOrElse(Set.empty)
+        blacklistedTransactions.put(address, prevTxs + txId)
+      }
 
-      blacklisted.put(txId, xs.toSet)
-      blacklistedAddressAssets.onNext(txId)
+      val r = setBuilder.result()
+      log.debug(s"blacklists for $txId:\n${r.map(_.toString()).mkString("\n")}")
+      blacklisted.put(txId, r)
     }
 
     true
@@ -53,10 +81,17 @@ class PessimisticPortfoliosImpl(spendableBalanceChanged: Observer[(Address, Asse
   override def contains(txId: ByteStr): Boolean = transactionPortfolios.containsKey(txId)
 
   override def isBlacklisted(accountAddr: Address, asset: Asset): Boolean = {
-    val txIds = transactions.getOrDefault(accountAddr, Set.empty)
-    txIds.exists { txId =>
-      blacklisted.getOrDefault(txId, Set.empty).contains(accountAddr -> asset)
+    val txIds = Option(blacklistedTransactions.getIfPresent(accountAddr)).getOrElse(Set.empty)
+    log.debug(s"isBlacklisted($accountAddr, $asset).txIds = ${txIds.mkString(", ")}")
+    val r = txIds.exists { txId =>
+      // todo getOrElse
+      val b = Option(blacklisted.getIfPresent(txId)).getOrElse(Set.empty)
+      val x = b.contains(accountAddr -> asset)
+      log.debug(s"isBlacklisted($accountAddr, $asset).exists { txId = $txId, b = $b, x = $x }")
+      x
     }
+    log.debug(s"isBlacklisted($accountAddr, $asset) = $r")
+    r
   }
 
   override def getAggregated(accountAddr: Address): Portfolio = {
@@ -70,7 +105,8 @@ class PessimisticPortfoliosImpl(spendableBalanceChanged: Observer[(Address, Asse
   }
 
   override def remove(txId: ByteStr): Unit = {
-    blacklisted.remove(txId)
+//    log.debug(s"Removing blacklists for $txId")
+//    blacklisted.remove(txId)
     Option(transactionPortfolios.remove(txId)) match {
       case Some(txPortfolios) =>
         txPortfolios.foreach {

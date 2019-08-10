@@ -3,7 +3,7 @@ package com.wavesplatform.settings
 import com.typesafe.config.Config
 import com.wavesplatform.account.Address
 import com.wavesplatform.common.state.ByteStr
-import com.wavesplatform.state.{Blockchain, Portfolio}
+import com.wavesplatform.state.Portfolio
 import com.wavesplatform.transaction.Asset
 import net.ceedubs.ficus.Ficus._
 import net.ceedubs.ficus.readers.ArbitraryTypeReader._
@@ -150,7 +150,7 @@ object BlockchainType extends Enumeration {
 }
 
 object BlockchainSettings {
-  import Asset.assetReader
+  implicit val ar: ValueReader[Asset] = Asset.assetReader // IDEA removes import
 
   implicit def setReader[T](itemReader: ValueReader[T]): ValueReader[Set[T]] =
     CollectionReaders.traversableReader[List, T](itemReader, List.canBuildFrom[T]).map(_.toSet)
@@ -202,59 +202,68 @@ case class TrackingAddressAssetsSettings(blacklists: Seq[BlacklistedAddressAsset
 case class BlacklistedAddressAssetsSettings(compromisedAddress: String, theftAssetIds: Set[Asset], compromisedHeight: Int)
 
 // TODO should remove all data for whitelists after start
+// TODO optimization: search only if asset is blocked
+// TODO probably only new blacklists are required for blockchain writer
 object TrackingAddressAssetsSettings {
-  def newBlacklists(currHeight: Int,
-                    portfolios: Map[Address, Portfolio],
-                    settings: TrackingAddressAssetsSettings,
-                    isBlacklisted: (Address, Asset) => Boolean): Map[Address, Set[Asset]] = {
-    {
-//      val r = portfolios
-//        .map {
-//          case (address, portfolio) =>
-//            val assets: Set[Asset] = portfolio.assets.keySet.collect {
-//              case asset if shouldBlock(blockchain, currHeight, sender, address, asset, settings) => asset
-//            }
-//            address -> assets
-//        }
-//        .filter { case (_, assets) => assets.nonEmpty }
+  def shouldBlacklist(currHeight: Int,
+                      address: Address,
+                      asset: Asset,
+                      settings: TrackingAddressAssetsSettings,
+                      isBlacklisted: (Address, Asset) => Boolean): Boolean =
+    !(settings.addressWhitelist.contains(address.stringRepr)) &&
+      shouldStartBlock(currHeight, address, asset, settings) || isBlacklisted(address, asset)
 
-      // TODO WAVES
-      val blockedAssets: Set[Asset] = portfolios.flatMap {
-        case (address, p) =>
-          if (settings.addressWhitelist.contains(address.toString)) Set.empty
-          else p.assets.collect {
-            // spendings
-            case (asset, diff) if diff < 0 && shouldStartBlock(currHeight, address, asset, settings) || isBlacklisted(address, asset) =>
-              asset //shouldBlock(isBlacklisted, currHeight, sender, address, asset, settings) => asset
+  def lookForBlacklists(currHeight: Int,
+                        portfolios: Map[Address, Portfolio],
+                        settings: TrackingAddressAssetsSettings,
+                        isBlacklisted: (Address, Asset) => Boolean): Map[Address, Set[Asset]] = {
+    // TODO WAVES
+    // Blacklisted senders
+    val blockedSenderAssets: Set[Asset] = portfolios.flatMap {
+      case (address, p) =>
+        if (settings.addressWhitelist.contains(address.toString)) Set.empty
+        else
+          p.assets.collect {
+            // isBlacklisted? diff && ()
+            case (asset, diff)
+                if diff < 0 &&
+                  !(settings.addressWhitelist.contains(address.stringRepr)) &&
+                  shouldStartBlock(currHeight, address, asset, settings) || isBlacklisted(address, asset) =>
+              asset
           }
-      }(collection.breakOut)
+    }(collection.breakOut)
 
-      val r = portfolios
-        .collect {
-          case (address, p) =>
-            val newBlocks: Set[Asset] = p.assets.collect {
-              // receivings
-              case (asset, diff) if diff > 0 && blockedAssets.contains(asset) || shouldStartBlock(currHeight, address, asset, settings) =>
-                asset: Asset
-            }(collection.breakOut)
-            address -> newBlocks
-        }
-        .filter { case (_, assets) => assets.nonEmpty }
+    // receivings
 
-      println(s"""TrackingAddressAssetsSettings.newBlacklists$currHeight, p=$portfolios)
-           |blockedAssets = $blockedAssets
+    val r = portfolios
+      .collect {
+        case (address, p) =>
+          val newBlocks: Set[Asset] = p.assets.collect {
+            case (asset, diff)
+                if !(settings.addressWhitelist.contains(address.stringRepr)) && (
+                  diff > 0 && blockedSenderAssets.contains(asset) ||
+                    shouldStartBlock(currHeight, address, asset, settings) ||
+                    isBlacklisted(address, asset)
+                ) =>
+              asset: Asset
+          }(collection.breakOut)
+          address -> newBlocks
+      }
+      .filter { case (_, assets) => assets.nonEmpty }
+
+    println(s"""TrackingAddressAssetsSettings.from($currHeight, p=$portfolios)
+           |blockedSenderAssets = $blockedSenderAssets
            |r = $r
            |""".stripMargin)
-      r
-    } // Don't need to add (sender, asset) here, because portfolios contains it
+    r
   }
 
-  def allow(isBlacklisted: (Address, Asset) => Boolean,
-            currHeight: Int,
-            sender: Address,
-            receiver: Address,
-            asset: Asset,
-            settings: TrackingAddressAssetsSettings): Boolean = {
+  def shouldBlock(isBlacklisted: (Address, Asset) => Boolean,
+                  currHeight: Int,
+                  sender: Address,
+                  receiver: Address,
+                  asset: Asset,
+                  settings: TrackingAddressAssetsSettings): Boolean = {
     println(s"""settings.addressWhitelist.contains(s=${sender.stringRepr}) = ${settings.addressWhitelist.contains(sender.stringRepr)}
          |settings.addressWhitelist.contains(r=${receiver.stringRepr}) = ${settings.addressWhitelist.contains(receiver.stringRepr)}
          |isBlacklisted(s=$sender, a=$asset) = ${isBlacklisted(sender, asset)}
@@ -262,7 +271,7 @@ object TrackingAddressAssetsSettings {
          |shouldStartBlock(currHeight, s=$sender, $asset, settings) = ${shouldStartBlock(currHeight, sender, asset, settings)}
          |shouldStartBlock(currHeight, r=$receiver, $asset, settings) = ${shouldStartBlock(currHeight, receiver, asset, settings)}
          |""".stripMargin)
-    settings.addressWhitelist.intersect(Set(sender.stringRepr, receiver.stringRepr)).nonEmpty || !{
+    settings.addressWhitelist.intersect(Set(sender.stringRepr, receiver.stringRepr)).isEmpty && {
       isBlacklisted(sender, asset) ||
       shouldStartBlock(currHeight, sender, asset, settings) ||
       shouldStartBlock(currHeight, receiver, asset, settings)

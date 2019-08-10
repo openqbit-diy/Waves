@@ -149,7 +149,7 @@ class UtxPoolSpecification
         ignoreSpendableBalanceChanged,
         ignoreTransactionCancels,
         UtxSettings(10, PoolDefaultMaxBytes, 1000, Set.empty, Set.empty, allowTransactionsFromSmartAccounts = true, allowSkipChecks = false),
-        shouldBlockTransfer = (_, _, _) => false
+        newBlacklists = _ => Map.empty
       )
     val amountPart = (senderBalance - fee) / 2 - fee
     val txs        = for (_ <- 1 to n) yield createWavesTransfer(sender, recipient, amountPart, fee, time.getTimestamp()).explicitGet()
@@ -167,7 +167,7 @@ class UtxPoolSpecification
             ignoreSpendableBalanceChanged,
             ignoreTransactionCancels,
             UtxSettings(10, PoolDefaultMaxBytes, 1000, Set.empty, Set.empty, allowTransactionsFromSmartAccounts = true, allowSkipChecks = false),
-            shouldBlockTransfer = (_, _, _) => false
+            newBlacklists = _ => Map.empty
           )
         (sender, bcu, utxPool)
     }
@@ -182,7 +182,7 @@ class UtxPoolSpecification
     val settings =
       UtxSettings(10, PoolDefaultMaxBytes, 1000, Set.empty, Set.empty, allowTransactionsFromSmartAccounts = true, allowSkipChecks = false)
     val utxPool =
-      new UtxPoolImpl(time, bcu, ignoreSpendableBalanceChanged, ignoreTransactionCancels, settings, shouldBlockTransfer = (_, _, _) => false)
+      new UtxPoolImpl(time, bcu, ignoreSpendableBalanceChanged, ignoreTransactionCancels, settings, newBlacklists = _ => Map.empty)
     txs.foreach(utxPool.putIfNew(_))
     (sender, bcu, utxPool, time, settings)
   }).label("withValidPayments")
@@ -196,7 +196,7 @@ class UtxPoolSpecification
     val settings =
       UtxSettings(txs.size, PoolDefaultMaxBytes, 1000, Set.empty, Set.empty, allowTransactionsFromSmartAccounts = true, allowSkipChecks = false)
     val utxPool =
-      new UtxPoolImpl(time, bcu, ignoreSpendableBalanceChanged, ignoreTransactionCancels, settings, shouldBlockTransfer = (_, _, _) => false)
+      new UtxPoolImpl(time, bcu, ignoreSpendableBalanceChanged, ignoreTransactionCancels, settings, newBlacklists = _ => Map.empty)
     (sender, bcu, utxPool, txs, time, settings)
   }).label("withValidPayments")
 
@@ -209,7 +209,7 @@ class UtxPoolSpecification
     val settings =
       UtxSettings(10, PoolDefaultMaxBytes, 1000, Set(sender.address), Set.empty, allowTransactionsFromSmartAccounts = true, allowSkipChecks = false)
     val utxPool =
-      new UtxPoolImpl(time, bcu, ignoreSpendableBalanceChanged, ignoreTransactionCancels, settings, shouldBlockTransfer = (_, _, _) => false)
+      new UtxPoolImpl(time, bcu, ignoreSpendableBalanceChanged, ignoreTransactionCancels, settings, newBlacklists = _ => Map.empty)
     (sender, utxPool, txs)
   }).label("withBlacklisted")
 
@@ -228,7 +228,7 @@ class UtxPoolSpecification
                   allowTransactionsFromSmartAccounts = true,
                   allowSkipChecks = false)
     val utxPool =
-      new UtxPoolImpl(time, bcu, ignoreSpendableBalanceChanged, ignoreTransactionCancels, settings, shouldBlockTransfer = (_, _, _) => false)
+      new UtxPoolImpl(time, bcu, ignoreSpendableBalanceChanged, ignoreTransactionCancels, settings, newBlacklists = _ => Map.empty)
     (sender, utxPool, txs)
   }).label("withBlacklistedAndAllowedByRule")
 
@@ -250,7 +250,7 @@ class UtxPoolSpecification
                     allowTransactionsFromSmartAccounts = true,
                     allowSkipChecks = false)
       val utxPool =
-        new UtxPoolImpl(time, bcu, ignoreSpendableBalanceChanged, ignoreTransactionCancels, settings, shouldBlockTransfer = (_, _, _) => false)
+        new UtxPoolImpl(time, bcu, ignoreSpendableBalanceChanged, ignoreTransactionCancels, settings, newBlacklists = _ => Map.empty)
       (sender, utxPool, txs)
     }).label("massTransferWithBlacklisted")
 
@@ -261,7 +261,7 @@ class UtxPoolSpecification
 
         forAll(listOfN(count, transfer(sender, senderBalance / 2, time))) { txs =>
           val utx =
-            new UtxPoolImpl(time, bcu, ignoreSpendableBalanceChanged, ignoreTransactionCancels, utxSettings, shouldBlockTransfer = (_, _, _) => false)
+            new UtxPoolImpl(time, bcu, ignoreSpendableBalanceChanged, ignoreTransactionCancels, utxSettings, newBlacklists = _ => Map.empty)
           f(txs, utx, time)
         }
     }
@@ -281,7 +281,7 @@ class UtxPoolSpecification
         ignoreSpendableBalanceChanged,
         ignoreTransactionCancels,
         UtxSettings(10, PoolDefaultMaxBytes, 1000, Set.empty, Set.empty, allowTransactionsFromSmartAccounts = true, allowSkipChecks = false),
-        shouldBlockTransfer = (_, _, _) => false
+        newBlacklists = _ => Map.empty
       )
       (utx, time, tx1, tx2)
     }
@@ -318,7 +318,7 @@ class UtxPoolSpecification
         ignoreSpendableBalanceChanged,
         ignoreTransactionCancels,
         UtxSettings(10, PoolDefaultMaxBytes, 1000, Set.empty, Set.empty, allowTransactionsFromSmartAccounts = scEnabled, allowSkipChecks = false),
-        shouldBlockTransfer = (_, _, _) => false
+        newBlacklists = _ => Map.empty
       )
 
       (sender, senderBalance, utx, bcu.lastBlock.fold(0L)(_.timestamp))
@@ -365,7 +365,7 @@ class UtxPoolSpecification
                                         ignoreSpendableBalanceChanged,
                                         ignoreTransactionCancels,
                                         utxSettings,
-                                        shouldBlockTransfer = (_, _, _) => false)
+                                        newBlacklists = _ => Map.empty)
 
               utx.putIfNew(headTransaction).resultE shouldBe 'right
               utx.putIfNew(vipTransaction).resultE shouldBe (if (allowSkipChecks == 1) 'right else 'left)
@@ -456,7 +456,7 @@ class UtxPoolSpecification
           ignoreSpendableBalanceChanged,
           ignoreTransactionCancels,
           UtxSettings(9999999, PoolDefaultMaxBytes, 999999, Set.empty, Set.empty, allowTransactionsFromSmartAccounts = true, allowSkipChecks = false),
-          shouldBlockTransfer = (_, _, _) => false
+          newBlacklists = _ => Map.empty
         )
         all((scripted ++ unscripted).map(tx => utx.putIfNew(tx).resultE)) shouldBe 'right
 
@@ -630,7 +630,7 @@ class UtxPoolSpecification
                               ignoreTransactionCancels,
                               settings,
                               () => nanoTimeSource(),
-                              shouldBlockTransfer = (_, _, _) => false)
+                              newBlacklists = _ => Map.empty)
 
             utxPool.putIfNew(transfer).resultE.explicitGet()
             val (tx, _) = utxPool.packUnconfirmed(MultiDimensionalMiningConstraint.unlimited, 100.nanos)

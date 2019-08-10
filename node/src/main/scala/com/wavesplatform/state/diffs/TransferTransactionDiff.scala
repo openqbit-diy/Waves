@@ -74,7 +74,7 @@ object TransferTransactionDiff {
         portfolios,
         scriptsRun = DiffsCommon.countScriptRuns(blockchain, tx),
         scriptsComplexity = DiffsCommon.countScriptsComplexity(blockchain, tx),
-        blacklistedAddressAssets = TrackingAddressAssetsSettings.newBlacklists(height,
+        blacklistedAddressAssets = TrackingAddressAssetsSettings.lookForBlacklists(height,
                                                                                portfolios,
                                                                                blockchain.settings.functionalitySettings.trackingAddressAssets,
                                                                                blockchain.isBlacklisted)

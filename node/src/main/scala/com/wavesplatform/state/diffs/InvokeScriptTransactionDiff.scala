@@ -206,7 +206,7 @@ object InvokeScriptTransactionDiff {
             scriptsComplexity = scriptsComplexity
           ) |+| transferSetDiff
           r.copy(blacklistedAddressAssets =
-            TrackingAddressAssetsSettings.newBlacklists(height, r.portfolios, blockchain.settings.functionalitySettings.trackingAddressAssets, blockchain.isBlacklisted))
+            TrackingAddressAssetsSettings.lookForBlacklists(height, r.portfolios, blockchain.settings.functionalitySettings.trackingAddressAssets, blockchain.isBlacklisted))
         }
       case Left(l) => TracedResult(Left(l))
       case _       => TracedResult(Left(GenericError(s"No contract at address ${tx.dAppAddressOrAlias}")))

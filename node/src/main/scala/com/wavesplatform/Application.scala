@@ -68,7 +68,7 @@ class Application(val actorSystem: ActorSystem, val settings: WavesSettings, con
 
   private val spendableBalanceChanged = ConcurrentSubject.publish[(Address, Asset)]
 
-  private val transactionBlocked = ConcurrentSubject.publish[ByteStr]
+  private val blacklistedAddressAssets = ConcurrentSubject.publish[(Address, Asset)]
 
   private val blockchainUpdater = StorageFactory(settings, db, time, spendableBalanceChanged)
 
@@ -118,9 +118,9 @@ class Application(val actorSystem: ActorSystem, val settings: WavesSettings, con
         time,
         blockchainUpdater,
         spendableBalanceChanged,
-        transactionBlocked,
+        blacklistedAddressAssets,
         settings.utxSettings,
-        newBlacklists = TrackingAddressAssetsSettings.newBlacklists(
+        newBlacklists = TrackingAddressAssetsSettings.lookForBlacklists(
           blockchainUpdater.height,
           _,
           settings.blockchainSettings.functionalitySettings.trackingAddressAssets,
@@ -224,15 +224,15 @@ class Application(val actorSystem: ActorSystem, val settings: WavesSettings, con
     implicit val materializer: ActorMaterializer = ActorMaterializer()
 
     val extensionContext = new Context {
-      override def settings: WavesSettings                               = app.settings
-      override def blockchain: Blockchain                                = app.blockchainUpdater
-      override def time: Time                                            = app.time
-      override def wallet: Wallet                                        = app.wallet
-      override def utx: UtxPool                                          = utxStorage
-      override def broadcastTx(tx: Transaction): Unit                    = allChannels.broadcastTx(tx, None)
-      override def spendableBalanceChanged: Observable[(Address, Asset)] = app.spendableBalanceChanged
-      override def actorSystem: ActorSystem                              = app.actorSystem
-      override def transactionBlocked: Observable[ByteStr]               = app.transactionBlocked
+      override def settings: WavesSettings                                = app.settings
+      override def blockchain: Blockchain                                 = app.blockchainUpdater
+      override def time: Time                                             = app.time
+      override def wallet: Wallet                                         = app.wallet
+      override def utx: UtxPool                                           = utxStorage
+      override def broadcastTx(tx: Transaction): Unit                     = allChannels.broadcastTx(tx, None)
+      override def spendableBalanceChanged: Observable[(Address, Asset)]  = app.spendableBalanceChanged
+      override def actorSystem: ActorSystem                               = app.actorSystem
+      override def blacklistedAddressAssets: Observable[(Address, Asset)] = app.blacklistedAddressAssets
     }
 
     extensions = settings.extensions.map { extensionClassName =>
@@ -325,7 +325,7 @@ class Application(val actorSystem: ActorSystem, val settings: WavesSettings, con
       }
 
       spendableBalanceChanged.onComplete()
-      transactionBlocked.onComplete()
+      blacklistedAddressAssets.onComplete()
       utx.close()
 
       shutdownAndWait(historyRepliesScheduler, "HistoryReplier", 5.minutes)

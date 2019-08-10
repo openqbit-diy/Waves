@@ -173,7 +173,7 @@ case class DebugApiRoute(ws: WavesSettings,
     (get & withAuth) {
       Address.fromString(rawAddress) match {
         case Left(_)        => complete(InvalidAddress)
-        case Right(address) => complete(Json.toJson(blockchain.blacklistedAddressAssets(address)))
+        case Right(address) => complete(Json.toJson(blockchain.blacklistedAddressAssets(address))) // TODO UtxPool?
       }
     }
   }
