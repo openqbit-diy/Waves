@@ -280,10 +280,12 @@ class LevelDBWriter(writableDB: DB, spendableBalanceChanged: Observer[(Address, 
     rw.put(Keys.lastAddressId, Some(lastAddressId))
     rw.put(Keys.score(height), rw.get(Keys.score(height - 1)) + block.blockScore())
 
+    val newAddressesById = mutable.Map.empty[BigInt, Address]
     for ((address, id) <- newAddresses) {
       rw.put(Keys.addressId(address), Some(id))
       log.trace(s"WRITE ${address.address} -> $id")
       rw.put(Keys.idToAddress(id), address)
+      newAddressesById.put(id, address)
     }
     log.trace(s"WRITE lastAddressId = $lastAddressId")
 
@@ -345,7 +347,10 @@ class LevelDBWriter(writableDB: DB, spendableBalanceChanged: Observer[(Address, 
         r             <- rw.get(Keys.blacklistedAddressAssets(addressId)(lastKeyHeight))
       } yield r
 
-      rw.put(Keys.blacklistedAddressAssets(addressId)(height), assets ++ prevAssets)
+      val address = newAddressesById.getOrElse(addressId, rw.get(Keys.idToAddress(addressId)))
+      val updatedBlacklistedAssets = assets ++ prevAssets
+      log.trace(s"Updated blacklisted assets for $address: ${assets.mkString(", ")}")
+      rw.put(Keys.blacklistedAddressAssets(addressId)(height), updatedBlacklistedAssets)
       expiredKeys ++= updateHistory(rw, Keys.blacklistedAddressAssetsHistory(addressId), threshold, Keys.blacklistedAddressAssets(addressId))
     }
 
