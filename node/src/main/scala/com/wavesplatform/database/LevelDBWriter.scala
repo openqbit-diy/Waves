@@ -366,13 +366,15 @@ class LevelDBWriter(
       val prevAssets = rw.get(Keys.trackedAssets(addressId))
       val newAssets  = assets.keySet -- prevAssets
 
+      val address = newAddressesById.getOrElse(addressId, rw.get(Keys.idToAddress(addressId)))
+
       if (newAssets.nonEmpty) {
-        val address = newAddressesById.getOrElse(addressId, rw.get(Keys.idToAddress(addressId)))
-        log.trace(s"New tracked assets for $address: ${assets.mkString(", ")}")
+        log.info(s"New tracked assets for $address at height: $height: ${assets.mkString(", ")}")
       }
 
       rw.put(Keys.trackedAssets(addressId), newAssets ++ prevAssets)
       for ((assetId, balance) <- assets) {
+        log.info(s"Bad balance changed for $address at height $height: $assetId -> $balance")
         rw.put(Keys.badAssets(addressId, assetId)(height), balance)
         expiredKeys ++= updateHistory(
           rw,
