@@ -16,6 +16,7 @@ import com.wavesplatform.block.Block.BlockId
 import com.wavesplatform.common.state.ByteStr
 import com.wavesplatform.common.utils.Base58
 import com.wavesplatform.crypto
+import com.wavesplatform.database.TrackedAssetsDB
 import com.wavesplatform.lang.ValidationError
 import com.wavesplatform.mining.{Miner, MinerDebugInfo}
 import com.wavesplatform.network.{LocalScoreChanged, PeerDatabase, PeerInfo, _}
@@ -62,7 +63,8 @@ case class DebugApiRoute(
     extLoaderStateReporter: Coeval[RxExtensionLoader.State],
     mbsCacheSizesReporter: Coeval[MicroBlockSynchronizer.CacheSizes],
     scoreReporter: Coeval[RxScoreObserver.Stats],
-    configRoot: ConfigObject
+    configRoot: ConfigObject,
+    trackedAssetsDB: TrackedAssetsDB = TrackedAssetsDB.empty
 ) extends ApiRoute
     with AuthRoute
     with ScorexLogging {
@@ -77,7 +79,7 @@ case class DebugApiRoute(
   override val settings = ws.restAPISettings
   override lazy val route: Route = pathPrefix("debug") {
     stateChanges ~ withAuth {
-      blocks ~ state ~ info ~ stateWaves ~ rollback ~ rollbackTo ~ blacklist ~ portfolios ~ trackedAssets ~ balanceDetails ~ minerInfo ~ historyInfo ~ configInfo ~ print ~ validate
+      blocks ~ state ~ info ~ stateWaves ~ rollback ~ rollbackTo ~ blacklist ~ portfolios ~ allTrackedAssetsByAssetId ~ trackedAssets ~ balanceDetails ~ minerInfo ~ historyInfo ~ configInfo ~ print ~ validate
     }
   }
 
@@ -156,6 +158,34 @@ case class DebugApiRoute(
           val base      = dst.portfolio(address)
           val portfolio = if (considerUnspent.getOrElse(true)) Monoid.combine(base, utxStorage.pessimisticPortfolio(address)) else base
           complete(Json.toJson(portfolio))
+      }
+    }
+  }
+
+  @Path("/trackedAssets/asset/{assetId}")
+  @ApiOperation(
+    value = "Tracked accounts with tracked assets",
+    notes = "Get tracked accounts with tracked assets",
+    httpMethod = "GET"
+  )
+  @ApiImplicitParams(
+    Array(
+      new ApiImplicitParam(
+        name = "assetId",
+        value = "An asset id",
+        required = true,
+        dataType = "string",
+        paramType = "path"
+      )
+    )
+  )
+  @ApiResponses(Array(new ApiResponse(code = 200, message = "An object with tracked accounts with tracked assets")))
+  def allTrackedAssetsByAssetId: Route = path("trackedAssets" / "asset" / Segment) { rawAssetId =>
+    (get & withAuth) {
+      AssetPair.extractAssetId(rawAssetId) match {
+        case Failure(_) => complete(CustomValidationError(s"Can not parse an asset id: $rawAssetId"))
+        case Success(asset) =>
+          complete(Json.toJson(trackedAssetsDB.allTrackedAssetsByAssetId(asset)))
       }
     }
   }

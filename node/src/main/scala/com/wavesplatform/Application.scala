@@ -20,7 +20,7 @@ import com.wavesplatform.api.http.assets.AssetsApiRoute
 import com.wavesplatform.api.http.leasing.LeaseApiRoute
 import com.wavesplatform.consensus.PoSSelector
 import com.wavesplatform.consensus.nxt.api.http.NxtConsensusApiRoute
-import com.wavesplatform.database.openDB
+import com.wavesplatform.database.{TrackedAssetsDB, openDB}
 import com.wavesplatform.extensions.{Context, Extension}
 import com.wavesplatform.features.EstimatorProvider._
 import com.wavesplatform.features.api.ActivationApiRoute
@@ -65,6 +65,8 @@ class Application(val actorSystem: ActorSystem, val settings: WavesSettings, con
   import monix.execution.Scheduler.Implicits.{global => scheduler}
 
   private val db = openDB(settings.dbSettings.directory)
+
+  private val trackedAssetsDB = TrackedAssetsDB(db)
 
   private val LocalScoreBroadcastDebounce = 1.second
 
@@ -281,7 +283,8 @@ class Application(val actorSystem: ActorSystem, val settings: WavesSettings, con
           extLoaderState,
           mbSyncCacheSizes,
           scoreStatsReporter,
-          configRoot
+          configRoot,
+          trackedAssetsDB
         ),
         AssetsApiRoute(settings.restAPISettings, wallet, utxSynchronizer, blockchainUpdater, time),
         ActivationApiRoute(settings.restAPISettings, settings.featuresSettings, blockchainUpdater),

@@ -177,6 +177,7 @@ object Keys {
 
   // Tracking
 
+  val TrackedAssetsPrefix: Short = 312
   def trackedAssets(addressId: BigInt): Key[Set[Asset]] =
     Key("tracked-assets", addr(312, addressId), readAssets, writeAssets)
 
