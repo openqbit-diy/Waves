@@ -49,7 +49,7 @@ class UtxPoolImpl(
 
   // State
   private[this] val transactions          = new ConcurrentHashMap[ByteStr, Transaction]()
-  private[this] val pessimisticPortfolios = new PessimisticPortfolios(spendableBalanceChanged, blacklistedAddressAssets, getBadAssetsDiff)
+  private[this] val pessimisticPortfolios = new PessimisticPortfolios(blockchain, spendableBalanceChanged, blacklistedAddressAssets, getBadAssetsDiff)
 
   override def putIfNew(tx: Transaction, verify: Boolean): TracedResult[ValidationError, Boolean] = {
     if (transactions.containsKey(tx.id())) TracedResult.wrapValue(false)
@@ -321,6 +321,7 @@ class UtxPoolImpl(
 
 object UtxPoolImpl {
   class PessimisticPortfolios(
+      blockchain: Blockchain,
       spendableBalanceChanged: Observer[(Address, Asset)],
       blacklistedAddressAssets: Observer[(Address, Asset)],
       getBadAssetsDiff: (ByteStr, Diff) => Map[Address, Map[Asset, Long]]
@@ -382,6 +383,7 @@ object UtxPoolImpl {
     def getAggregated(accountAddr: Address): Portfolio = {
       val portfolios = for {
         txId <- pessimisticTxsByAddress.getOrDefault(accountAddr, Set.empty).toList
+        if blockchain.transactionHeight(txId).isEmpty
         txPortfolios = pessimisticTxPortfolios.getOrDefault(txId, Map.empty[Address, Portfolio])
         txAccountPortfolio <- txPortfolios.get(accountAddr).toList
       } yield txAccountPortfolio
@@ -402,7 +404,8 @@ object UtxPoolImpl {
     def badAssetsByAddress(theAddress: Address): Map[Asset, Long] =
       Monoid.combineAll(
         for {
-          txId              <- trackedTxsByAddress.getOrDefault(theAddress, Set.empty)
+          txId <- trackedTxsByAddress.getOrDefault(theAddress, Set.empty)
+          if blockchain.transactionHeight(txId).isEmpty
           (address, assets) <- trackedTxBadPortfolios.getOrDefault(txId, Map.empty)
           if address == theAddress
         } yield assets
