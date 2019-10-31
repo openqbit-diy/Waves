@@ -188,10 +188,13 @@ case class DebugApiRoute(
         case Success(asset) =>
           val items = trackedAssetsDB.allTrackedAssetsByAssetId(asset).toSeq.map {
             case (address, bad) =>
-              address.toString -> TrackedAssetsAccount(
-                bad,
-                blockchain.balance(address, asset) - bad
-              )
+              address.toString -> {
+                Json.toJson(
+                  TrackedAssetsAccount(
+                    bad,
+                    blockchain.balance(address, asset) - bad
+                  )): JsValueWrapper
+              }
           }
           complete(Json.obj(items: _*))
       }
@@ -267,7 +270,7 @@ case class DebugApiRoute(
         case Right((address, asset)) =>
           val bad  = blockchain.badAddressAssetAmount(address, asset) + utxStorage.badAddressAssets(address).getOrElse(asset, 0L)
           val good = blockchain.balance(address, asset) - bad
-          complete(TrackedAssetsAccount(bad, good))
+          complete(Json.toJson(TrackedAssetsAccount(bad, good)))
       }
     }
   }
@@ -628,5 +631,5 @@ object DebugApiRoute {
     })
 
   case class TrackedAssetsAccount(bad: Long, good: Long)
-  implicit val trackedAssetsAccountFormat = Json.format[TrackedAssetsAccount]
+  implicit val trackedAssetsAccountFormat: Format[TrackedAssetsAccount] = Json.format[TrackedAssetsAccount]
 }
