@@ -35,7 +35,7 @@ object TrackedAssetsDB {
     }
   }
 
-  val empty = new TrackedAssetsDB {
+  val empty: TrackedAssetsDB = new TrackedAssetsDB {
     override def allTrackedAssetsByAssetId(asset: Asset): Map[Address, Long] = Map.empty
   }
 }

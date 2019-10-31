@@ -179,7 +179,7 @@ object Keys {
 
   val TrackedAssetsPrefix: Short = 312
   def trackedAssets(addressId: BigInt): Key[Set[Asset]] =
-    Key("tracked-assets", addr(312, addressId), readAssets, writeAssets)
+    Key("tracked-assets", addr(TrackedAssetsPrefix, addressId), readAssets, writeAssets)
 
   def trackedAssetsHistory(addressId: BigInt, asset: Asset): Key[Seq[Int]] =
     historyKey("tracked-assets-history", 313, addressId.toByteArray ++ writeAsset(asset))

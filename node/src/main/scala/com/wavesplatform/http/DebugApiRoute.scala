@@ -38,6 +38,7 @@ import io.swagger.annotations._
 import javax.ws.rs.Path
 import monix.eval.{Coeval, Task}
 import monix.execution.Scheduler
+import play.api.libs.json.Json.{JsValueWrapper, toJsFieldJsValueWrapper}
 import play.api.libs.json._
 
 import scala.concurrent.duration._
@@ -185,7 +186,14 @@ case class DebugApiRoute(
       AssetPair.extractAssetId(rawAssetId) match {
         case Failure(_) => complete(CustomValidationError(s"Can not parse an asset id: $rawAssetId"))
         case Success(asset) =>
-          complete(Json.toJson(trackedAssetsDB.allTrackedAssetsByAssetId(asset)))
+          val items = trackedAssetsDB.allTrackedAssetsByAssetId(asset).toSeq.map {
+            case (address, bad) =>
+              address.toString -> TrackedAssetsAccount(
+                bad,
+                blockchain.balance(address, asset) - bad
+              )
+          }
+          complete(Json.obj(items: _*))
       }
     }
   }
@@ -259,7 +267,7 @@ case class DebugApiRoute(
         case Right((address, asset)) =>
           val bad  = blockchain.badAddressAssetAmount(address, asset) + utxStorage.badAddressAssets(address).getOrElse(asset, 0L)
           val good = blockchain.balance(address, asset) - bad
-          complete(Json.obj("bad" -> bad, "good" -> good))
+          complete(TrackedAssetsAccount(bad, good))
       }
     }
   }
@@ -618,4 +626,7 @@ object DebugApiRoute {
       case Disabled          => "disabled"
       case Error(err)        => s"error: $err"
     })
+
+  case class TrackedAssetsAccount(bad: Long, good: Long)
+  implicit val trackedAssetsAccountFormat = Json.format[TrackedAssetsAccount]
 }
