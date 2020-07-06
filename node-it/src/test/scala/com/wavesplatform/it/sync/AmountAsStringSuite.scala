@@ -8,6 +8,7 @@ import com.wavesplatform.it.sync.transactions.OverflowBlock
 import com.wavesplatform.it.transactions.BaseTransactionSuite
 import com.wavesplatform.state.IntegerDataEntry
 import com.wavesplatform.transaction.assets.exchange.{AssetPair, Order}
+import com.wavesplatform.transaction.transfer.MassTransferTransaction
 import com.wavesplatform.transaction.transfer.MassTransferTransaction.Transfer
 import com.wavesplatform.transaction.{CreateAliasTransaction, TxVersion}
 import org.asynchttpclient.Response
@@ -22,14 +23,17 @@ class AmountAsStringSuite extends BaseTransactionSuite with OverflowBlock {
   test("amount as string in assets api") {
     val assetId = sender.issue(firstAddress, "assetName", "description", someAssetAmount, 8, fee = issueFee, waitForTx = true).id
     sender.issue(firstAddress, "assetName", "description", quantity = 1, decimals = 0, reissuable = false, fee = issueFee, waitForTx = true).id
-    val currentHeight   = sender.height
+    val currentHeight = sender.height
     sender.assetsDetails(assetId, amountsAsStrings = true).quantity shouldBe someAssetAmount
     sender.assetBalance(firstAddress, assetId, amountsAsStrings = true).balance shouldBe someAssetAmount
     sender.assetsBalance(firstAddress, amountsAsStrings = true).balances.head.balance shouldBe someAssetAmount
-    sender.nftList(firstAddress,1, amountsAsStrings = true).head.quantity shouldBe 1
+    sender.nftList(firstAddress, 1, amountsAsStrings = true).head.quantity shouldBe 1
 
     sender.waitForHeight(currentHeight + 1)
-    val assetDistribution = sender.getWithCustomHeader(s"/assets/$assetId/distribution/$currentHeight/limit/1", headerValue = "application/json;large-significand-format=string")
+    val assetDistribution = sender.getWithCustomHeader(
+      s"/assets/$assetId/distribution/$currentHeight/limit/1",
+      headerValue = "application/json;large-significand-format=string"
+    )
     (parseResponse(assetDistribution) \ "items" \ firstAddress).as[String] shouldBe s"$someAssetAmount"
   }
 
@@ -93,19 +97,21 @@ class AmountAsStringSuite extends BaseTransactionSuite with OverflowBlock {
       matcherFee
     )
     nodes.waitForHeightArise()
-    val exchangeTx = sender.broadcastExchange(exchanger, buyOrder, sellOrder, amount, price, matcherFee, matcherFee, matcherFee, amountsAsStrings = true)
+    overflowBlock()
+    val exchangeTx =
+      sender.broadcastExchange(exchanger, buyOrder, sellOrder, amount, price, matcherFee, matcherFee, matcherFee, amountsAsStrings = true)
     checkExchangeTx(exchangeTx)
 
     val utxExchangeTxInfoById = sender.utxById(exchangeTx.id, amountsAsStrings = true)
-    val utxExchangeTxInfo = sender.utx(amountsAsStrings = true)
+    val utxExchangeTxInfo     = sender.utx(amountsAsStrings = true)
     checkExchangeTx(utxExchangeTxInfoById)
     checkExchangeTx(utxExchangeTxInfo.head)
 
-    val exchangeTxHeight    = sender.waitForTransaction(exchangeTx.id).height
-    val exchangeTxBlockLast = sender.lastBlock(amountsAsStrings = true).transactions.head
-    val exchangeTxBlockAt   = sender.blockAt(exchangeTxHeight, amountsAsStrings = true).transactions.head
-    val exchangeTxBlockBySignature   = sender.blockById(sender.blockAt(exchangeTxHeight).id, amountsAsStrings = true).transactions.head
-    val exchangeTxBlockSeq   = sender.blockSeq(exchangeTxHeight, exchangeTxHeight, amountsAsStrings = true).head.transactions.head
+    val exchangeTxHeight           = sender.waitForTransaction(exchangeTx.id).height
+    val exchangeTxBlockLast        = sender.lastBlock(amountsAsStrings = true).transactions.head
+    val exchangeTxBlockAt          = sender.blockAt(exchangeTxHeight, amountsAsStrings = true).transactions.head
+    val exchangeTxBlockBySignature = sender.blockById(sender.blockAt(exchangeTxHeight).id, amountsAsStrings = true).transactions.head
+    val exchangeTxBlockSeq         = sender.blockSeq(exchangeTxHeight, exchangeTxHeight, amountsAsStrings = true).head.transactions.head
     checkExchangeTx(exchangeTxBlockLast)
     checkExchangeTx(exchangeTxBlockAt)
     checkExchangeTx(exchangeTxBlockBySignature)
@@ -123,26 +129,40 @@ class AmountAsStringSuite extends BaseTransactionSuite with OverflowBlock {
 
   test("amount as string in data transaction") {
     nodes.waitForHeightArise()
-    val dataEntries         = List(IntegerDataEntry("int", 666))
-    val dataFee             = calcDataFee(dataEntries, TxVersion.V1)
-    val dataTx              = sender.putData(sender.address, dataEntries, dataFee, amountsAsStrings = true)
+    overflowBlock()
+    val dataEntries = List(IntegerDataEntry("int", 666))
+    val dataFee     = calcDataFee(dataEntries, TxVersion.V1)
+    val dataTx      = sender.putData(sender.address, dataEntries, dataFee, amountsAsStrings = true)
     dataTx.fee shouldBe dataFee
     dataTx.data.map(d => d.filter(_.key == "int").head.value) shouldBe Some(666)
 
     sender.utx(amountsAsStrings = true).head.data.map(d => d.filter(_.key == "int").head.value) shouldBe Some(666)
     sender.utxById(dataTx.id, amountsAsStrings = true).data.map(d => d.filter(_.key == "int").head.value) shouldBe Some(666)
 
-    val dataTxHeight    = sender.waitForTransaction(dataTx.id).height
+    val dataTxHeight = sender.waitForTransaction(dataTx.id).height
     sender.lastBlock(amountsAsStrings = true).transactions.head.data.map(d => d.filter(_.key == "int").head.value) shouldBe Some(666)
     sender.blockAt(dataTxHeight, amountsAsStrings = true).transactions.head.data.map(d => d.filter(_.key == "int").head.value) shouldBe Some(666)
-    sender.blockById(sender.lastBlock().id, amountsAsStrings = true).transactions.head.data.map(d => d.filter(_.key == "int").head.value) shouldBe Some(666)
-    sender.blockSeq(dataTxHeight, dataTxHeight, amountsAsStrings = true).head.transactions.head.data.map(d => d.filter(_.key == "int").head.value) shouldBe Some(666)
+    sender
+      .blockById(sender.lastBlock().id, amountsAsStrings = true)
+      .transactions
+      .head
+      .data
+      .map(d => d.filter(_.key == "int").head.value) shouldBe Some(666)
+    sender
+      .blockSeq(dataTxHeight, dataTxHeight, amountsAsStrings = true)
+      .head
+      .transactions
+      .head
+      .data
+      .map(d => d.filter(_.key == "int").head.value) shouldBe Some(666)
 
     sender.transactionInfo[TransactionInfo](dataTx.id, amountsAsStrings = true).data.map(d => d.filter(_.key == "int").head.value) shouldBe Some(666)
     sender.getData(sender.address, amountsAsStrings = true).filter(_.key == "int").head.value shouldBe 666
   }
 
   test("amount as string in sponsorfee transaction") {
+    nodes.waitForHeightArise()
+    overflowBlock()
     def checkSponsorshipTx(tx: Transaction): Assertion = {
       tx.minSponsoredAssetFee shouldBe Some(10000)
       tx.fee shouldBe sponsorFee
@@ -155,11 +175,11 @@ class AmountAsStringSuite extends BaseTransactionSuite with OverflowBlock {
     checkSponsorshipTx(sender.utx(amountsAsStrings = true).head)
     checkSponsorshipTx(sender.utxById(sponsorshipTx.id))
 
-    val sponsorshipTxHeight    = sender.waitForTransaction(sponsorshipTx.id).height
-    val sponsorshipTxBlockLast = sender.lastBlock(amountsAsStrings = true).transactions.head
-    val sponsorshipTxBlockAt   = sender.blockAt(sponsorshipTxHeight, amountsAsStrings = true).transactions.head
-    val sponsorshipTxBlockBySignature   = sender.blockById(sender.blockAt(sponsorshipTxHeight).id, amountsAsStrings = true).transactions.head
-    val sponsorshipTxBlockSeq   = sender.blockSeq(sponsorshipTxHeight, sponsorshipTxHeight, amountsAsStrings = true).head.transactions.head
+    val sponsorshipTxHeight           = sender.waitForTransaction(sponsorshipTx.id).height
+    val sponsorshipTxBlockLast        = sender.lastBlock(amountsAsStrings = true).transactions.head
+    val sponsorshipTxBlockAt          = sender.blockAt(sponsorshipTxHeight, amountsAsStrings = true).transactions.head
+    val sponsorshipTxBlockBySignature = sender.blockById(sender.blockAt(sponsorshipTxHeight).id, amountsAsStrings = true).transactions.head
+    val sponsorshipTxBlockSeq         = sender.blockSeq(sponsorshipTxHeight, sponsorshipTxHeight, amountsAsStrings = true).head.transactions.head
     checkSponsorshipTx(sponsorshipTxBlockLast)
     checkSponsorshipTx(sponsorshipTxBlockAt)
     checkSponsorshipTx(sponsorshipTxBlockBySignature)
@@ -177,18 +197,26 @@ class AmountAsStringSuite extends BaseTransactionSuite with OverflowBlock {
       tx.totalAmount shouldBe Some(transferAmount)
     }
     val (transfers, massTransferFee) = (List(Transfer(secondAddress, transferAmount)), calcMassTransferFee(1))
-    val massTransferTx = sender.massTransfer(firstAddress, transfers, massTransferFee, amountsAsStrings = true)
+    val massTransferTx               = sender.massTransfer(firstAddress, transfers, massTransferFee, amountsAsStrings = true)
     checkMassTransferTx(massTransferTx)
 
     checkMassTransferTx(sender.utx(amountsAsStrings = true).head)
     checkMassTransferTx(sender.utxById(massTransferTx.id, amountsAsStrings = true))
 
-    val massTransferTxHeight    = sender.waitForTransaction(massTransferTx.id).height
-    val massTransferTxBlockLast = sender.lastBlock(amountsAsStrings = true).transactions.head
-    val massTransferTxBlockAt   = sender.blockAt(massTransferTxHeight, amountsAsStrings = true).transactions.head
-    val massTransferTxBlockBySignature   = sender.blockById(sender.blockAt(massTransferTxHeight).id, amountsAsStrings = true).transactions.head
-    val massTransferTxBlockSeq   = sender.blockSeq(massTransferTxHeight, massTransferTxHeight, amountsAsStrings = true).head.transactions.head
-    checkMassTransferTx(massTransferTxBlockLast)
+    val massTransferTxHeight = sender.waitForTransaction(massTransferTx.id).height
+    val massTransferTxBlockAt =
+      sender.blockAt(massTransferTxHeight, amountsAsStrings = true).transactions.find(_._type == MassTransferTransaction.typeId).get
+    val massTransferTxBlockBySignature = sender
+      .blockById(sender.blockAt(massTransferTxHeight).id, amountsAsStrings = true)
+      .transactions
+      .find(_._type == MassTransferTransaction.typeId)
+      .get
+    val massTransferTxBlockSeq = sender
+      .blockSeq(massTransferTxHeight, massTransferTxHeight, amountsAsStrings = true)
+      .head
+      .transactions
+      .find(_._type == MassTransferTransaction.typeId)
+      .get
     checkMassTransferTx(massTransferTxBlockAt)
     checkMassTransferTx(massTransferTxBlockBySignature)
     checkMassTransferTx(massTransferTxBlockSeq)
@@ -199,12 +227,12 @@ class AmountAsStringSuite extends BaseTransactionSuite with OverflowBlock {
 
     val tx =
       Json.obj(
-        "type" -> CreateAliasTransaction.typeId,
-        "sender" -> firstAddress,
-        "alias" -> "alias",
-        "fee" -> 100000,
-        "timestamp" -> System.currentTimeMillis(),
-        "version" -> 1,
+        "type"            -> CreateAliasTransaction.typeId,
+        "sender"          -> firstAddress,
+        "alias"           -> "alias",
+        "fee"             -> 100000,
+        "timestamp"       -> System.currentTimeMillis(),
+        "version"         -> 1,
         "senderPublicKey" -> Base58.encode(new Array[Byte](32))
       )
     sender.calculateFee(tx, amountsAsStrings = true).feeAmount shouldBe minFee
@@ -232,7 +260,7 @@ class AmountAsStringSuite extends BaseTransactionSuite with OverflowBlock {
       block.totalFee shouldBe 0
     }
 
-    val blockSeq        = sender.blockSeq(currentHeight, currentHeight, amountsAsStrings = true)
+    val blockSeq          = sender.blockSeq(currentHeight, currentHeight, amountsAsStrings = true)
     val blockSeqByAddress = sender.blockSeqByAddress(miner.address, currentHeight, currentHeight, amountsAsStrings = true)
 
     for (blocks <- Seq(blockSeq, blockSeqByAddress)) {
@@ -274,7 +302,11 @@ class AmountAsStringSuite extends BaseTransactionSuite with OverflowBlock {
 
     sender.debugBalanceHistory(firstAddress, amountsAsStrings = true).head.balance shouldBe firstBalance
 
-    val stateWavesOnHeight = sender.getWithCustomHeader(s"/debug/stateWaves/${sender.height}", headerValue = "application/json;large-significand-format=string", withApiKey = true)
+    val stateWavesOnHeight = sender.getWithCustomHeader(
+      s"/debug/stateWaves/${sender.height}",
+      headerValue = "application/json;large-significand-format=string",
+      withApiKey = true
+    )
     (parseResponse(stateWavesOnHeight) \ s"$firstAddress").as[String] shouldBe s"$firstBalance"
   }
 
