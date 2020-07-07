@@ -5,8 +5,8 @@ import com.wavesplatform.account.KeyPair
 import com.wavesplatform.block.Block.BlockId
 import com.wavesplatform.block.{Block, MicroBlock}
 import com.wavesplatform.metrics._
+import com.wavesplatform.mining._
 import com.wavesplatform.mining.microblocks.MicroBlockMinerImpl._
-import com.wavesplatform.mining.{MinerDebugInfo, MiningConstraint, MiningConstraints, MultiDimensionalMiningConstraint}
 import com.wavesplatform.network.{MicroBlockInv, _}
 import com.wavesplatform.settings.MinerSettings
 import com.wavesplatform.state.Blockchain
@@ -39,37 +39,41 @@ class MicroBlockMinerImpl(
   def generateMicroBlockSequence(
       account: KeyPair,
       accumulatedBlock: Block,
-      constraints: MiningConstraints,
       restTotalConstraint: MiningConstraint,
       lastMicroBlock: Long
-  ): Task[Unit] = {
-    generateOneMicroBlockTask(account, accumulatedBlock, constraints, restTotalConstraint, lastMicroBlock)
+  ): Task[Unit] =
+    generateOneMicroBlockTask(account, accumulatedBlock, restTotalConstraint, lastMicroBlock)
       .flatMap {
         case res @ Success(newBlock, newConstraint) =>
-          Task.defer(generateMicroBlockSequence(account, newBlock, constraints, newConstraint, res.nanoTime))
+          Task.defer(generateMicroBlockSequence(account, newBlock, newConstraint, res.nanoTime))
         case Retry =>
           log.warn("Waiting for non-empty UTX")
           waitForUtxNonEmpty
             .map(_ => log.info("UTX event fired"))
-            .flatMap(_ => generateMicroBlockSequence(account, accumulatedBlock, constraints, restTotalConstraint, lastMicroBlock))
+            .flatMap(_ => generateMicroBlockSequence(account, accumulatedBlock, restTotalConstraint, lastMicroBlock))
         case Stop =>
           setDebugState(MinerDebugInfo.MiningBlocks)
           Task(log.debug("MicroBlock mining completed, block is full"))
       }
       .recover { case e => log.error("Error mining microblock", e) }
-  }
 
   private def generateOneMicroBlockTask(
       account: KeyPair,
       accumulatedBlock: Block,
-      constraints: MiningConstraints,
       restTotalConstraint: MiningConstraint,
       lastMicroBlock: Long
   ): Task[MicroBlockMiningResult] = {
     val packTask = Task.cancelable[(Option[Seq[Transaction]], MiningConstraint)] { cb =>
       @volatile var cancelled = false
       minerScheduler.execute { () =>
-        val mdConstraint = MultiDimensionalMiningConstraint(restTotalConstraint, constraints.micro)
+        val mdConstraint = MultiDimensionalMiningConstraint(
+          restTotalConstraint,
+          OneDimensionalMiningConstraint(
+            utx.nextMicroBlockSize().getOrElse(0).max(settings.maxTransactionsInMicroBlock),
+            TxEstimators.one,
+            "MaxTxsInMicroBlock"
+          )
+        )
         val packStrategy =
           if (accumulatedBlock.transactionData.isEmpty) PackStrategy.Limit(settings.microBlockInterval)
           else PackStrategy.Estimate(settings.microBlockInterval)
