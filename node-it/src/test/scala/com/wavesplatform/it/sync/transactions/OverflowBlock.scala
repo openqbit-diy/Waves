@@ -13,14 +13,14 @@ trait OverflowBlock {
   // Hack to bypass instant micro mining
   def overflowBlock(): Unit = {
     import com.wavesplatform.it.api.SyncHttpApi._
+    val addr    = sender.createAddress()
+    val entries = List.tabulate(4)(n => BinaryDataEntry(n.toString, ByteStr(Array.fill(32724)(n.toByte))))
+    val fee     = calcDataFee(entries, 1)
+    sender.transfer(sender.address, addr, fee * 9)
     sender.waitFor("empty utx")(n => n.utxSize, (utxSize: Int) => utxSize == 0, 1 second)
     sender.waitForHeight(sender.height + 1)
 
-    val entries = List.tabulate(4)(n => BinaryDataEntry("test" + n, ByteStr(Array.fill(32700)(n.toByte))))
-    val addr    = sender.createAddress()
-    val fee     = calcDataFee(entries, 1)
-    sender.transfer(sender.address, addr, fee * 10, waitForTx = true)
-    for (_ <- 1 to 8) sender.putData(addr, entries, fee)
+    for (i <- 1 to 8) sender.putData(addr, entries, fee + i)
     sender.waitFor("empty utx")(n => n.utxSize, (utxSize: Int) => utxSize == 0, 100.millis)
   }
 }
