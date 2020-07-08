@@ -161,13 +161,13 @@ class AmountAsStringSuite extends BaseTransactionSuite with OverflowBlock {
   }
 
   test("amount as string in sponsorfee transaction") {
-    nodes.waitForHeightArise()
-    overflowBlock()
     def checkSponsorshipTx(tx: Transaction): Assertion = {
       tx.minSponsoredAssetFee shouldBe Some(10000)
       tx.fee shouldBe sponsorFee
     }
     val sponsoredAssetId = sender.issue(sender.address, "sponsor", "", someAssetAmount, 8, waitForTx = true).id
+
+    overflowBlock()
     val sponsorshipTx = sender.sponsorAsset(sender.address, sponsoredAssetId, 10000, sponsorFee, amountsAsStrings = true)
     checkSponsorshipTx(sponsorshipTx)
 
