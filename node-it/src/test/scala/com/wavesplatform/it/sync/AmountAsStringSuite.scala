@@ -146,8 +146,6 @@ class AmountAsStringSuite extends BaseTransactionSuite with OverflowBlock {
         data <- tx.data.getOrElse(Nil) if data.key == "int"
       } yield data.value).head
 
-    val lastBlock = sender.lastBlock(amountsAsStrings = true)
-    findValue(lastBlock) shouldBe 666
     findValue(sender.blockAt(dataTxHeight, amountsAsStrings = true)) shouldBe 666
     findValue(sender.blockById(sender.lastBlock().id, amountsAsStrings = true)) shouldBe 666
     findValue(
