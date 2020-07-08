@@ -110,11 +110,12 @@ class AcceptFailedScriptActivationSuite extends BaseTransactionSuite with NTPTim
   }
 
   test("accept failed transaction after activation height") {
-    sender.waitForHeight(ActivationHeight)
+    sender.waitForHeight(ActivationHeight, 5 minutes)
 
     sender.setAssetScript(asset, dApp, setAssetScriptFee + smartFee, assetScript(true), waitForTx = true)
     overflowBlock()
-    sender.setAssetScript(asset, dApp, priorityFee, assetScript(false), waitForTx = true)
+
+    sender.setAssetScript(asset, dApp, priorityFee, assetScript(false))
     val txs =
       (1 to MaxTxsInMicroBlock * 2).map { _ =>
         sender.invokeScript(caller, dApp, Some("transfer"), fee = minInvokeFee)._1.id
