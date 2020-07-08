@@ -128,7 +128,6 @@ class AmountAsStringSuite extends BaseTransactionSuite with OverflowBlock {
   }
 
   test("amount as string in data transaction") {
-    nodes.waitForHeightArise()
     overflowBlock()
     val dataEntries = List(IntegerDataEntry("int", 666))
     val dataFee     = calcDataFee(dataEntries, TxVersion.V1)
@@ -147,7 +146,8 @@ class AmountAsStringSuite extends BaseTransactionSuite with OverflowBlock {
         data <- tx.data.getOrElse(Nil) if data.key == "int"
       } yield data.value).head
 
-    findValue(sender.lastBlock(amountsAsStrings = true)) shouldBe 666
+    val lastBlock = sender.lastBlock(amountsAsStrings = true)
+    findValue(lastBlock) shouldBe 666
     findValue(sender.blockAt(dataTxHeight, amountsAsStrings = true)) shouldBe 666
     findValue(sender.blockById(sender.lastBlock().id, amountsAsStrings = true)) shouldBe 666
     findValue(
