@@ -168,7 +168,6 @@ class AmountAsStringSuite extends BaseTransactionSuite with OverflowBlock {
       tx.fee shouldBe sponsorFee
     }
     val sponsoredAssetId = sender.issue(sender.address, "sponsor", "", someAssetAmount, 8, waitForTx = true).id
-    nodes.waitForHeightArise()
     val sponsorshipTx = sender.sponsorAsset(sender.address, sponsoredAssetId, 10000, sponsorFee, amountsAsStrings = true)
     checkSponsorshipTx(sponsorshipTx)
 
