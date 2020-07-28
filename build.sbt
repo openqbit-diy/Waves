@@ -31,8 +31,9 @@ lazy val lang =
       inConfig(Compile)(
         Seq(
           sourceGenerators += Tasks.docSource,
-          PB.targets += scalapb.gen(flatPackage = true) -> (sourceManaged in Compile).value,
-          PB.protoSources := Seq(baseDirectory.value.getParentFile / "shared" / "src" / "main" / "protobuf"),
+          PB.targets += scalapb.gen(flatPackage = true) -> (sourceManaged).value,
+          PB.protoSources := Seq(PB.externalIncludePath.value, baseDirectory.value.getParentFile / "shared" / "src" / "main" / "protobuf"),
+          includeFilter in PB.generate := new SimpleFileFilter((f: File) => f.getName == "DAppMeta.proto" || (f.getName.endsWith(".proto") && f.getParent.endsWith("waves"))),
           PB.deleteTargetDirectory := false
         )
       )
@@ -91,9 +92,6 @@ lazy val root = (project in file("."))
     benchmark,
     `blockchain-updates`
   )
-
-// this a hack to support both `node-it/test` and `it/test` commands
-lazy val it = project.aggregate(`node-it`)
 
 inScope(Global)(
   Seq(
@@ -163,6 +161,7 @@ checkPRRaw := Def
   .sequential(
     root / clean,
     Def.task {
+      (`lang-jvm` / Compile / PB.generate).value
       (Test / compile).value
       (`lang-tests` / Test / test).value
       (`lang-js` / Compile / fastOptJS).value

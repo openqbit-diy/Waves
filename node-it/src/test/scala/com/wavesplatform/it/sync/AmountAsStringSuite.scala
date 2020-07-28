@@ -14,15 +14,15 @@ import com.wavesplatform.transaction.{CreateAliasTransaction, TxVersion}
 import org.asynchttpclient.Response
 import org.scalatest
 import org.scalatest.Assertion
-import play.api.libs.json.{JsValue, Json}
+import play.api.libs.json.{JsString, JsValue, Json}
 
 class AmountAsStringSuite extends BaseTransactionSuite with OverflowBlock {
 
   val (headerName, headerValue) = ("Accept", "application/json;large-significand-format=string")
 
   test("amount as string in assets api") {
-    val assetId = sender.issue(firstAddress, "assetName", "description", someAssetAmount, 8, fee = issueFee, waitForTx = true).id
-    sender.issue(firstAddress, "assetName", "description", quantity = 1, decimals = 0, reissuable = false, fee = issueFee, waitForTx = true).id
+    val assetId = sender.issue(firstKeyPair, "assetName", "description", someAssetAmount, 8, fee = issueFee, waitForTx = true).id
+    sender.issue(firstKeyPair, "assetName", "description", quantity = 1, decimals = 0, reissuable = false, fee = issueFee, waitForTx = true).id
     val currentHeight = sender.height
     sender.assetsDetails(assetId, amountsAsStrings = true).quantity shouldBe someAssetAmount
     sender.assetBalance(firstAddress, assetId, amountsAsStrings = true).balance shouldBe someAssetAmount
@@ -34,7 +34,7 @@ class AmountAsStringSuite extends BaseTransactionSuite with OverflowBlock {
       s"/assets/$assetId/distribution/$currentHeight/limit/1",
       headerValue = "application/json;large-significand-format=string"
     )
-    (parseResponse(assetDistribution) \ "items" \ firstAddress).as[String] shouldBe s"$someAssetAmount"
+    (parseResponse(assetDistribution) \ "items" \ firstAddress).get shouldBe JsString(someAssetAmount.toString)
   }
 
   test("amount as string in addresses api") {
@@ -54,7 +54,7 @@ class AmountAsStringSuite extends BaseTransactionSuite with OverflowBlock {
 
   test("amount as string in exchange transaction") {
     val exchanger      = KeyPair("exchanger".getBytes)
-    val transferTxId   = sender.transfer(firstAddress, exchanger.toAddress.toString, transferAmount, minFee, waitForTx = true).id
+    val transferTxId   = sender.transfer(firstKeyPair, exchanger.toAddress.toString, transferAmount, minFee, waitForTx = true).id
     val transferTxInfo = sender.transactionInfo[TransactionInfo](transferTxId, amountsAsStrings = true)
     transferTxInfo.amount shouldBe Some(transferAmount)
     transferTxInfo.fee shouldBe minFee
@@ -131,7 +131,7 @@ class AmountAsStringSuite extends BaseTransactionSuite with OverflowBlock {
     overflowBlock()
     val dataEntries = List(IntegerDataEntry("int", 666))
     val dataFee     = calcDataFee(dataEntries, TxVersion.V1)
-    val dataTx      = sender.putData(sender.address, dataEntries, dataFee, amountsAsStrings = true)
+    val dataTx      = sender.putData(sender.keyPair, dataEntries, dataFee, amountsAsStrings = true)
     dataTx.fee shouldBe dataFee
     dataTx.data.map(d => d.filter(_.key == "int").head.value) shouldBe Some(666)
 
@@ -147,7 +147,9 @@ class AmountAsStringSuite extends BaseTransactionSuite with OverflowBlock {
       } yield data.value).head
 
     findValue(sender.blockAt(dataTxHeight, amountsAsStrings = true)) shouldBe 666
-    findValue(sender.blockById(sender.lastBlock().id, amountsAsStrings = true)) shouldBe 666
+    findValue(sender
+      .blockById(sender.lastBlock().id, amountsAsStrings = true)
+      ) shouldBe 666
     findValue(
       sender
         .blockSeq(dataTxHeight, dataTxHeight, amountsAsStrings = true)
@@ -163,10 +165,10 @@ class AmountAsStringSuite extends BaseTransactionSuite with OverflowBlock {
       tx.minSponsoredAssetFee shouldBe Some(10000)
       tx.fee shouldBe sponsorFee
     }
-    val sponsoredAssetId = sender.issue(sender.address, "sponsor", "", someAssetAmount, 8, waitForTx = true).id
+    val sponsoredAssetId = sender.issue(sender.keyPair, "sponsor", "", someAssetAmount, 8, waitForTx = true).id
 
     overflowBlock()
-    val sponsorshipTx = sender.sponsorAsset(sender.address, sponsoredAssetId, 10000, sponsorFee, amountsAsStrings = true)
+    val sponsorshipTx = sender.sponsorAsset(sender.keyPair, sponsoredAssetId, 10000, sponsorFee, amountsAsStrings = true)
     checkSponsorshipTx(sponsorshipTx)
 
     checkSponsorshipTx(sender.utx(amountsAsStrings = true).head)
@@ -194,7 +196,7 @@ class AmountAsStringSuite extends BaseTransactionSuite with OverflowBlock {
       tx.totalAmount shouldBe Some(transferAmount)
     }
     val (transfers, massTransferFee) = (List(Transfer(secondAddress, transferAmount)), calcMassTransferFee(1))
-    val massTransferTx               = sender.massTransfer(firstAddress, transfers, massTransferFee, amountsAsStrings = true)
+    val massTransferTx               = sender.massTransfer(firstKeyPair, transfers, massTransferFee, amountsAsStrings = true)
     checkMassTransferTx(massTransferTx)
 
     checkMassTransferTx(sender.utx(amountsAsStrings = true).head)
@@ -225,7 +227,7 @@ class AmountAsStringSuite extends BaseTransactionSuite with OverflowBlock {
     val tx =
       Json.obj(
         "type"            -> CreateAliasTransaction.typeId,
-        "sender"          -> firstAddress,
+        "sender"          -> firstKeyPair,
         "alias"           -> "alias",
         "fee"             -> 100000,
         "timestamp"       -> System.currentTimeMillis(),
@@ -304,7 +306,7 @@ class AmountAsStringSuite extends BaseTransactionSuite with OverflowBlock {
       headerValue = "application/json;large-significand-format=string",
       withApiKey = true
     )
-    (parseResponse(stateWavesOnHeight) \ s"$firstAddress").as[String] shouldBe s"$firstBalance"
+    (parseResponse(stateWavesOnHeight) \ firstAddress).get shouldBe JsString(firstBalance.toString)
   }
 
   private def parseResponse(response: Response): JsValue = Json.parse(response.getResponseBody)
