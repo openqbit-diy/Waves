@@ -45,9 +45,6 @@ object TxHelpers {
     orderV3(orderType, asset, Waves, feeAsset)
   }
 
-  def order(orderType: OrderType, asset: Asset): Order =
-    orderV3(orderType, asset, Waves)
-
   def orderV3(orderType: OrderType, amountAsset: Asset, priceAsset: Asset, feeAsset: Asset): Order = {
     Order.selfSigned(
       TxVersion.V3,
@@ -55,11 +52,11 @@ object TxHelpers {
       defaultSigner.publicKey,
       AssetPair(amountAsset, priceAsset),
       orderType,
-      1,
-      1,
+      1L,
+      1L,
       timestamp,
       timestamp + 100000,
-      1,
+      1L,
       feeAsset
     )
   }

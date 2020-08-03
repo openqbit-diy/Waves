@@ -149,7 +149,7 @@ class AmountAsStringSuite extends BaseTransactionSuite with OverflowBlock {
     findValue(sender.blockAt(dataTxHeight, amountsAsStrings = true)) shouldBe 666
     findValue(sender
       .blockById(sender.lastBlock().id, amountsAsStrings = true)
-      ) shouldBe 666
+    ) shouldBe 666
     findValue(
       sender
         .blockSeq(dataTxHeight, dataTxHeight, amountsAsStrings = true)

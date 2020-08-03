@@ -1,22 +1,21 @@
 package com.wavesplatform.it.sync.debug
 
 import com.typesafe.config.Config
+import com.wavesplatform.it.{Node, NodeConfigs}
 import com.wavesplatform.it.api.SyncHttpApi._
-import com.wavesplatform.it.sync._
-import com.wavesplatform.it.sync.transactions.OverflowBlock
 import com.wavesplatform.it.transactions.NodesFromDocker
 import com.wavesplatform.it.util._
-import com.wavesplatform.it.{Node, NodeConfigs}
+import com.wavesplatform.it.sync._
 import org.scalatest.FunSuite
 
-class DebugPortfoliosSuite extends FunSuite with NodesFromDocker with OverflowBlock {
+class DebugPortfoliosSuite extends FunSuite with NodesFromDocker {
   override protected def nodeConfigs: Seq[Config] =
     NodeConfigs.newBuilder
       .overrideBase(_.quorum(0))
       .withDefault(entitiesNumber = 1)
       .buildNonConflicting()
 
-  def sender: Node = nodes.head
+  private def sender: Node = nodes.head
 
   private lazy val firstAcc  = sender.createKeyPair()
   private lazy val secondAcc = sender.createKeyPair()
@@ -48,7 +47,6 @@ class DebugPortfoliosSuite extends FunSuite with NodesFromDocker with OverflowBl
 
   test("getting a balance without pessimistic transactions from UTX pool - not changed after UTX") {
     nodes.waitForHeightArise()
-    overflowBlock()
 
     val portfolioBefore = sender.debugPortfoliosFor(firstAddress, considerUnspent = false)
     val utxSizeBefore   = sender.utxSize
