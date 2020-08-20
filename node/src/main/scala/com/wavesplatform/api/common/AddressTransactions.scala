@@ -119,4 +119,5 @@ object AddressTransactions {
       .dropWhile { case (_, tx, _) => fromId.contains(tx.id()) }
       .filter { case (_, tx, _) => types.isEmpty || types.contains(tx.typeId) }
       .collect { case v @ (_, tx: Authorized, _) if sender.forall(_ == tx.sender.toAddress) => v }
+      .view
 }
